@@ -1,0 +1,38 @@
+# ===== 原始数据：体积大，先排除 =====
+01-Field-Discovery/raw_data/*
+!01-Field-Discovery/raw_data/.gitkeep
+
+# ===== 大文件（GitHub 超过 100MB 会直接拒绝上传）=====
+*.mp4
+*.mov
+*.avi
+*.zip
+*.rar
+*.psd
+*.ai
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+
+# ===== Node =====
+node_modules/
+dist/
+build/
+
+# ===== 系统与编辑器 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# ===== 隐私：绝对不要上传 =====
+*.key
+*.pem
+.env
+secrets.txt
