@@ -1,6 +1,7 @@
-# ===== 原始数据：体积大，先排除 =====
-01-Field-Discovery/raw_data/*
-!01-Field-Discovery/raw_data/.gitkeep
+# ⚠️ 重要：不要排除 01-Field-Discovery/raw_data/
+# 那是第一阶段的必交内容（本校实地采样原始数据表）。
+# 曾经的错误写法：01-Field-Discovery/raw_data/*
+# —— 会导致 CSV 数据表被静默跳过，检查 GitHub 时才发现没上传。
 
 # ===== 大文件（GitHub 超过 100MB 会直接拒绝上传）=====
 *.mp4
