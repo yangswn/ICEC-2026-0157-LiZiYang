@@ -1,0 +1,38 @@
+<svg viewBox="0 0 680 392" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>声学超标自动提醒的四档光效与触发条件</title>
+  <desc>按滑动窗口 Leq 与持续时间双条件分级：正常绿常亮、注意黄呼吸、超标红快闪、瞬时尖峰红单闪且不锁存。持续门限 T 按点位本底波动自适应。</desc>
+
+  <text x="40" y="30" font-size="12" fill="#8B95A3" font-family="-apple-system,PingFang SC,sans-serif">状态</text>
+  <text x="210" y="30" font-size="12" fill="#8B95A3" font-family="-apple-system,PingFang SC,sans-serif">触发条件</text>
+  <text x="474" y="30" font-size="12" fill="#8B95A3" font-family="-apple-system,PingFang SC,sans-serif">光效表现</text>
+
+  <rect x="40" y="44" width="600" height="56" rx="10" fill="#F1EFE8" stroke="#D3D1C7" stroke-width="0.5"/>
+  <rect x="50" y="50" width="44" height="44" rx="8" fill="#EAF3DE" stroke="#639922" stroke-width="0.5"/>
+  <text x="110" y="72" font-size="14" font-weight="500" fill="#173404" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">正常</text>
+  <text x="210" y="72" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">Leq &lt; 45 dBA（滑动 10 秒）</text>
+  <text x="474" y="72" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">绿常亮</text>
+
+  <rect x="40" y="110" width="600" height="56" rx="10" fill="#F1EFE8" stroke="#D3D1C7" stroke-width="0.5"/>
+  <rect x="50" y="116" width="44" height="44" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="110" y="138" font-size="14" font-weight="500" fill="#412402" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">注意</text>
+  <text x="210" y="138" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">45 ≤ Leq &lt; 55 dBA</text>
+  <text x="474" y="138" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">黄呼吸 1 Hz</text>
+
+  <rect x="40" y="176" width="600" height="56" rx="10" fill="#F1EFE8" stroke="#D3D1C7" stroke-width="0.5"/>
+  <rect x="50" y="182" width="44" height="44" rx="8" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="110" y="204" font-size="14" font-weight="500" fill="#501313" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">超标</text>
+  <text x="210" y="204" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">Leq ≥ 55 且持续 ≥ T</text>
+  <text x="474" y="204" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">红快闪 2 Hz</text>
+
+  <rect x="40" y="242" width="600" height="56" rx="10" fill="#F1EFE8" stroke="#D3D1C7" stroke-width="0.5"/>
+  <rect x="50" y="248" width="44" height="44" rx="8" fill="#FCEBEB" stroke="#F09595" stroke-width="0.5"/>
+  <text x="110" y="270" font-size="14" font-weight="500" fill="#501313" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">瞬时尖峰</text>
+  <text x="210" y="270" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">峰值 ≥ 70 但未持续到 T</text>
+  <text x="474" y="270" font-size="13" fill="#444441" dominant-baseline="central" font-family="-apple-system,PingFang SC,sans-serif">红单闪一次，不锁存</text>
+
+  <line x1="40" y1="316" x2="640" y2="316" stroke="#D3D1C7" stroke-width="0.5"/>
+
+  <text x="40" y="338" font-size="13" font-weight="500" fill="#1A1D21" font-family="-apple-system,PingFang SC,sans-serif">T（持续门限）不取固定值，按该点位的本底波动自适应</text>
+  <text x="40" y="360" font-size="13" fill="#5B6470" font-family="-apple-system,PingFang SC,sans-serif">均匀环境（Leq−L50 &lt; 3 dB，如图书馆）取 5 秒；波动环境（&gt; 10 dB，如实训室走廊）取 15 秒</text>
+  <text x="40" y="382" font-size="12" fill="#8B95A3" font-family="-apple-system,PingFang SC,sans-serif">依据：图书馆午 Leq−L50 = 6.8 dB　·　实训室走廊午 Leq−L50 = 14.3 dB　·　食堂早 Leq−L50 = 0.4 dB</text>
+</svg>
