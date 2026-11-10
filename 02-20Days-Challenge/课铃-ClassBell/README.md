@@ -54,6 +54,9 @@
 **代码依据**（可自行核对）：`server/server.js` 的 `ALLOWED_HOSTS` 与 `crossSiteWrite()`，
 `desktop/MainForm.cs` 的 `ShowBrowserFallback()`。
 
+**完整的人机协作过程**（怎么问的、AI 找出了什么、哪些判断是我下的）见
+→ `03-AI-Collaboration/2026-11-10-用云端AI做安全审计.md`
+
 **这一条的触发点值得单独记**：14 项缺陷不是"感觉哪里不稳"，而是对着实际代码逐条走查、
 并用真实请求验证出来的；4 项 P0 全都指向同一条路径 —— **本地 HTTP 服务被外部网页滥用**。
 
@@ -166,6 +169,9 @@ Win11 一般自带；**Win10、精简系统、Ghost 系统、Windows 沙盒不�
 
 **代码依据**：`installer/Setup.cs` 的 `WebView2Installed()` 与 `EnsureWebView2()`；
 引导程序在 `tools/MicrosoftEdgeWebview2Setup.exe`（1,897,688 字节，随源码一起进 Git，可重建）。
+
+**这条反馈的完整处理过程**（含我第一版只修一半的判断失误）见
+→ `03-AI-Collaboration/2026-11-10-WebView2-两次迭代.md`
 
 #### ⚠️ 一个必须说清的边界：**降级 ≠ 等价替代**
 
