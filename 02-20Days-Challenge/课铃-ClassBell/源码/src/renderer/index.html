@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>课铃 ClassBell</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m4 5.6 1.1 1.1L7 4.8M4 11.6l1.1 1.1L7 10.8M4 17.6l1.1 1.1L7 16.8"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"/><path d="M20 20v-4h-4"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.2-5 4.1 10 2.2-5H21"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.4 6.6a8 8 0 1 0 11.2 0"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M3.5 8 12 4l8.5 4v8L12 20l-8.5-4z"/><path d="M3.5 8 12 12l8.5-4M12 12v8"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20v3H6.5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h7M15 7h5M4 17h3M11 17h9"/><circle cx="13" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8.5a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18c0-1.5-3-1.5-3-8.5"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 18.5V5.5M8 7h8M8 11h6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12.5 5.2 5.2L20 6.8"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><rect x="4.5" y="7.5" width="12" height="12" rx="2"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h9A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H17"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 19h14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V5M8 9l4-4 4 4M5 19h14"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 2.9 8.2 7 10 4.1-1.8 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 21c4 0 7-2.9 7-6.6 0-3.1-1.7-5.4-4.3-7.4.1 2.4-.9 4.1-2.4 4.8.2-3.7-1.6-6.4-3.6-7.8.2 4-3.7 6.4-3.7 10.4C5 17.9 8 21 12 21Z"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3.5c.2 4.8 3.2 7.8 8 8-4.8.2-7.8 3.2-8 8-.2-4.8-3.2-7.8-8-8 4.8-.2 7.8-3.2 8-8Z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <header class="titlebar" id="titlebar">
+      <div class="brand no-drag">
+        <img src="assets/icon.png" alt="" class="brand-icon" />
+        <div class="brand-text"><strong>课铃</strong><span>ClassBell</span></div>
+      </div>
+      <div class="titlebar-status no-drag" id="titlebar-status">
+        <span class="status-dot"></span>
+        <span id="titlebar-status-text">正在准备</span>
+      </div>
+      <div class="window-controls no-drag">
+        <button class="win-btn" id="btn-min" title="最小化" aria-label="最小化"><svg><use href="#i-min"/></svg></button>
+        <button class="win-btn" id="btn-max" title="最大化" aria-label="最大化"><svg><use href="#i-max"/></svg></button>
+        <button class="win-btn win-close" id="btn-close" title="隐藏到托盘（Ctrl+Alt+B 找回）" aria-label="关闭"><svg><use href="#i-close"/></svg></button>
+      </div>
+    </header>
+
+    <div class="body-shell">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <img src="assets/icon.png" alt="" />
+          <div><strong>课铃</strong><span>CLASSBELL</span></div>
+          <button class="brand-settings" id="btn-open-settings" title="设置" aria-label="设置"><svg><use href="#i-sliders"/></svg></button>
+        </div>
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-item active" data-page="dashboard"><svg><use href="#i-grid"/></svg><span>今日概览</span><em class="nav-badge" id="nav-badge"></em></button>
+          <button class="nav-item" data-page="tasks"><svg><use href="#i-list"/></svg><span>任务日程</span></button>
+          <button class="nav-item" data-page="integration"><svg><use href="#i-sync"/></svg><span>学习通同步</span><i class="nav-dot" id="nav-cx-dot" hidden></i></button>
+          <button class="nav-item" data-page="notices"><svg><use href="#i-bell"/></svg><span>通知中心</span><em class="nav-badge" id="nav-notice-badge"></em></button>
+          <button class="nav-item" data-page="gear"><svg><use href="#i-box"/></svg><span>器材借还</span><em class="nav-badge" id="nav-gear-badge"></em></button>
+          <button class="nav-item" data-page="mistakes"><svg><use href="#i-book"/></svg><span>错题本</span><em class="nav-badge" id="nav-mistake-badge"></em></button>
+          <button class="nav-item" data-page="settings"><svg><use href="#i-sliders"/></svg><span>偏好设置</span></button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="side-next" id="side-next">
+          <div class="side-next-label"><svg><use href="#i-clock"/></svg><span>下一项截止</span></div>
+          <div class="side-next-time" id="side-next-time">—</div>
+          <div class="side-next-title" id="side-next-title">暂无待办</div>
+        </div>
+        <div class="sidebar-foot">
+          <button class="side-quit" id="btn-quit-side" title="终止课铃并关闭后台服务"><svg><use href="#i-power"/></svg><span>终止课铃</span></button>
+          <div class="foot-line"><span>数据仅保存在本机</span><svg><use href="#i-shield"/></svg></div>
+          <div class="foot-version" id="foot-version">v1.2.5</div>
+        </div>
+      </aside>
+
+      <main class="content" id="content">
+        <section class="page active" id="page-dashboard" aria-labelledby="dash-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow" id="dash-date">周一 · 11月9日</div>
+              <h1 id="dash-title">今天，稳一点。</h1>
+              <p class="page-sub" id="dash-sub">把该做的事放在眼前，剩下的交给课铃。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-ghost" id="btn-sync-top"><svg><use href="#i-sync"/></svg><span>同步学习通</span></button>
+              <button class="btn btn-primary" id="btn-add-top"><svg><use href="#i-plus"/></svg><span>新建日程</span></button>
+            </div>
+          </div>
+
+          <div class="missed-banner" id="missed-banner" hidden>
+            <div class="missed-mark"><svg><use href="#i-bell"/></svg></div>
+            <div class="missed-copy">
+              <strong>有 <span id="missed-num">0</span> 项已经错过，无法补交</strong>
+              <p>下次截止前 24 小时先交，不要让“已过期”变成习惯。</p>
+            </div>
+            <button class="link-btn" data-goto="tasks">查看记录 <svg><use href="#i-arrow"/></svg></button>
+          </div>
+
+          <div class="welcome-card" id="welcome-card" hidden>
+            <div class="welcome-mark"><svg><use href="#i-spark"/></svg></div>
+            <div class="welcome-copy">
+              <strong>第一次使用课铃？</strong>
+              <p>登录学习通后会自动识别作业与考试；不登录也能手动记录课程日程。</p>
+            </div>
+            <div class="welcome-actions">
+              <button class="btn btn-small btn-primary" id="welcome-login">连接学习通</button>
+              <button class="btn btn-small btn-ghost" id="welcome-manual">先手动添加</button>
+              <button class="welcome-close" id="welcome-close" aria-label="关闭提示"><svg><use href="#i-x"/></svg></button>
+            </div>
+          </div>
+
+          <div class="hero-card" id="hero-card">
+            <div class="hero-pattern"></div>
+            <div class="hero-main">
+              <div class="hero-kicker" id="hero-kicker">距离下一项截止</div>
+              <div class="hero-countdown" id="hero-countdown">—</div>
+              <div class="hero-title" id="hero-title">今天还没有安排</div>
+              <div class="hero-meta" id="hero-meta">新建一项日程，或连接学习通自动同步。</div>
+            </div>
+            <div class="hero-side">
+              <div class="hero-date" id="hero-date">—</div>
+              <div class="hero-actions" id="hero-actions"></div>
+            </div>
+          </div>
+
+          <div class="stats-row" id="stats-row">
+            <div class="stat-card"><span class="stat-label">待完成</span><strong id="stat-pending">0</strong><em>项</em></div>
+            <div class="stat-card"><span class="stat-label">今日截止</span><strong id="stat-today">0</strong><em>项</em></div>
+            <div class="stat-card"><span class="stat-label">本周截止</span><strong id="stat-week">0</strong><em>项</em></div>
+            <div class="stat-card accent"><span class="stat-label">已完成</span><strong id="stat-done">0</strong><em>项</em></div>
+          </div>
+
+          <div class="dash-columns">
+            <div class="panel upcoming-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>今日与接下来</h2>
+                  <p>按截止时间排序，先处理最紧的。</p>
+                </div>
+                <button class="link-btn" data-goto="tasks">全部日程 <svg><use href="#i-arrow"/></svg></button>
+              </div>
+              <div class="upcoming-list" id="upcoming-list"></div>
+            </div>
+            <div class="dash-rail">
+              <div class="panel week-panel">
+                <div class="panel-head compact">
+                  <div><h2>本周节奏</h2><p>未来 7 天的截止分布</p></div>
+                </div>
+                <div class="week-chart" id="week-chart"></div>
+              </div>
+              <div class="panel cx-panel" id="cx-mini">
+                <div class="cx-mini-head">
+                  <div class="cx-mini-icon"><svg><use href="#i-sync"/></svg></div>
+                  <div><h2>学习通</h2><p id="cx-mini-status">尚未连接</p></div>
+                  <span class="pill" id="cx-mini-pill">离线</span>
+                </div>
+                <div class="cx-mini-body">
+                  <div class="mini-row"><span>上次同步</span><strong id="cx-mini-last">从未</strong></div>
+                  <div class="mini-row"><span>最近识别</span><strong id="cx-mini-count">0 项</strong></div>
+                </div>
+                <button class="btn btn-soft btn-block" id="cx-mini-btn">去连接</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" id="page-tasks" aria-labelledby="tasks-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">任务日程</div>
+              <h1 id="tasks-title">把每件事，安排清楚。</h1>
+              <p class="page-sub">作业、考试和自定义日程都在这里；支持搜索、重复与提醒。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary" id="btn-add-task"><svg><use href="#i-plus"/></svg><span>新建日程</span></button>
+            </div>
+          </div>
+
+          <div class="task-toolbar">
+            <div class="segmented" id="status-tabs">
+              <button class="seg active" data-status="pending">待完成 <span id="count-pending">0</span></button>
+              <button class="seg" data-status="missed">已错过 <span id="count-missed">0</span></button>
+              <button class="seg" data-status="done">已完成 <span id="count-done">0</span></button>
+              <button class="seg" data-status="all">全部</button>
+            </div>
+            <div class="toolbar-right">
+              <label class="search-box"><svg><use href="#i-search"/></svg><input id="task-search" type="search" placeholder="搜索标题或课程" autocomplete="off" /></label>
+              <select id="task-category" class="select compact" aria-label="按类型筛选">
+                <option value="all">全部类型</option>
+                <option value="homework">作业</option>
+                <option value="exam">考试</option>
+                <option value="schedule">日程</option>
+                <option value="other">其他</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="task-summary" id="task-summary">正在载入…</div>
+          <div class="task-groups" id="task-list"></div>
+        </section>
+
+        <section class="page" id="page-integration" aria-labelledby="cx-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">学习通同步</div>
+              <h1 id="cx-title">登录一次，作业自己走过来。</h1>
+              <p class="page-sub">在独立的登录窗口完成学习通登录，课铃会读取作业、考试与截止时间。密码只由学习通页面处理。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-ghost" id="btn-cx-home"><svg><use href="#i-external"/></svg><span>打开学习通登录</span></button>
+              <button class="btn btn-primary" id="btn-cx-sync"><svg><use href="#i-sync"/></svg><span>立即同步</span></button>
+            </div>
+          </div>
+
+          <div class="integration-grid">
+            <div class="browser-card">
+              <div class="browser-bar">
+                <div class="browser-dots"><i></i><i></i><i></i></div>
+                <div class="address" id="cx-address">学习通登录 · 独立安全窗口</div>
+                <button class="icon-btn" id="btn-cx-reload" title="刷新" aria-label="刷新"><svg><use href="#i-sync"/></svg></button>
+              </div>
+              <div class="webview-wrap">
+                <div class="login-shell" id="cx-login-shell">
+                  <div class="login-illustration">
+                    <div class="login-ring ring-a"></div>
+                    <div class="login-ring ring-b"></div>
+                    <div class="login-mark"><svg><use href="#i-book"/></svg></div>
+                    <span class="login-spark spark-a"></span>
+                    <span class="login-spark spark-b"></span>
+                  </div>
+                  <div class="login-copy">
+                    <span class="login-eyebrow">超星学习通 · 安全登录</span>
+                    <h2>在独立窗口中完成登录</h2>
+                    <p>登录窗口由本机 WebView2 打开，密码只交给学习通页面处理。登录成功后，课铃会读取你本人有权访问的作业、考试与截止时间。</p>
+                    <button class="btn btn-primary" id="btn-cx-open-login"><svg><use href="#i-external"/></svg>打开学习通登录窗口</button>
+                    <span class="login-note"><svg><use href="#i-shield"/></svg>Cookie 仅保存在本机，课铃不上传账号密码</span>
+                  </div>
+                </div>
+                <div class="webview-loading" id="cx-loading" hidden>
+                  <div class="spinner"></div>
+                  <span>正在打开学习通…</span>
+                </div>
+              </div>
+            </div>
+
+            <aside class="sync-side">
+              <div class="panel sync-status">
+                <div class="sync-status-top">
+                  <span class="account-avatar" id="cx-avatar">学</span>
+                  <div><strong id="cx-account">未登录</strong><p id="cx-login-hint">在左侧窗口扫码或输入账号</p></div>
+                </div>
+                <div class="sync-status-pill" id="cx-status-pill"><span class="dot"></span>等待登录</div>
+                <div class="sync-meta">
+                  <div><span>上次同步</span><strong id="cx-last-sync">从未</strong></div>
+                  <div><span>识别结果</span><strong id="cx-last-count">0 项</strong></div>
+                  <div><span>课程数量</span><strong id="cx-course-count">0 门</strong></div>
+                </div>
+                <button class="btn btn-primary btn-block" id="cx-sync-btn">同步作业与考试</button>
+                <button class="btn btn-ghost btn-block" id="cx-scan-btn">刷新登录状态</button>
+              </div>
+
+              <div class="panel auto-panel">
+                <div class="switch-row">
+                  <div><strong>自动同步</strong><p>按设定间隔检查新作业</p></div>
+                  <label class="switch"><input type="checkbox" id="set-auto-sync-inline" /><span></span></label>
+                </div>
+                <div class="switch-row">
+                  <div><strong>自动加入日程</strong><p>识别到截止时间后直接建立提醒</p></div>
+                  <label class="switch"><input type="checkbox" id="set-auto-add-inline" /><span></span></label>
+                </div>
+                <div class="sync-note"><svg><use href="#i-shield"/></svg><span>只读取你本人有权访问的课程数据，不上传账号密码。</span></div>
+              </div>
+
+              <div class="panel candidate-panel">
+                <div class="panel-head compact">
+                  <div><h2>待确认</h2><p>缺少截止时间的识别结果</p></div>
+                  <span class="count-chip" id="candidate-count">0</span>
+                </div>
+                <div class="candidate-list" id="candidate-list"></div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="page-notices" aria-labelledby="notices-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">通知提取</div>
+              <h1 id="notices-title">该看的东西，自动收进来。</h1>
+              <p class="page-sub">从学习通通知与本地关键事件提取：错过、逾期、器材未还都会出现在这里。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-ghost" id="btn-extract-notices"><svg><use href="#i-sync"/></svg><span>从学习通提取</span></button>
+              <button class="btn btn-primary" id="btn-add-notice"><svg><use href="#i-plus"/></svg><span>手动添加</span></button>
+            </div>
+          </div>
+
+          <div class="stats-row mini-stats">
+            <div class="stat-card"><span class="stat-label">未读</span><strong id="notice-unread">0</strong><em>条</em></div>
+            <div class="stat-card"><span class="stat-label">通知总数</span><strong id="notice-total">0</strong><em>条</em></div>
+            <div class="stat-card"><span class="stat-label">最近提取</span><strong id="notice-last">—</strong><em id="notice-last-unit"></em></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>通知列表</h2><p>点标题展开正文；未读左侧有标记</p></div>
+              <div class="log-head-actions">
+                <button class="link-btn" id="btn-read-all">全部已读</button>
+              </div>
+            </div>
+            <div class="notice-list" id="notice-list"></div>
+          </div>
+        </section>
+
+        <section class="page" id="page-gear" aria-labelledby="gear-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">器材借还核对</div>
+              <h1 id="gear-title">借了什么，还没还什么。</h1>
+              <p class="page-sub">实验室器材、绘图板、仪器都能记；到期未还会自动进入通知中心。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary" id="btn-add-gear"><svg><use href="#i-plus"/></svg><span>登记借出</span></button>
+            </div>
+          </div>
+
+          <div class="stats-row mini-stats">
+            <div class="stat-card"><span class="stat-label">借出中</span><strong id="gear-out">0</strong><em>件</em></div>
+            <div class="stat-card"><span class="stat-label">逾期未还</span><strong id="gear-overdue">0</strong><em>件</em></div>
+            <div class="stat-card"><span class="stat-label">已归还</span><strong id="gear-returned">0</strong><em>件</em></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>借还清单</h2><p>按“未还优先、应还时间最近”排序</p></div>
+              <div class="log-head-actions"><button class="link-btn" id="btn-gear-check">核对未还</button></div>
+            </div>
+            <div class="gear-list" id="gear-list"></div>
+          </div>
+        </section>
+
+        <section class="page" id="page-mistakes" aria-labelledby="mistakes-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">错题归档</div>
+              <h1 id="mistakes-title">错一次，记一辈子。</h1>
+              <p class="page-sub">按学习通课程归档；可读取已批阅作业里的错题，也可以自己补录。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-soft" id="btn-scan-mistakes"><svg><use href="#i-search"/></svg><span>扫描当前作业页</span></button>
+              <button class="btn btn-ghost" id="btn-extract-mistakes"><svg><use href="#i-sync"/></svg><span>从学习通归档</span></button>
+              <button class="btn btn-primary" id="btn-add-mistake"><svg><use href="#i-plus"/></svg><span>手动添加</span></button>
+            </div>
+          </div>
+
+          <div class="guide-card" id="mistake-guide">
+            <div class="guide-steps">
+              <strong>怎么归档错题</strong>
+              <ol>
+                <li>在学习通登录窗口打开“已批改”的作业详情页（能看到我的答案 / 正确答案）；</li>
+                <li>回到这里点“扫描当前作业页”，课程与作业名会自动从页面识别；</li>
+                <li>也可以开启自动扫描，之后每次打开批改页都会自动归档错题。</li>
+              </ol>
+            </div>
+            <label class="guide-switch">
+              <span>自动扫描</span>
+              <span class="switch"><input type="checkbox" id="auto-scan-mistakes" /><span></span></span>
+            </label>
+          </div>
+
+          <div class="stats-row mini-stats">
+            <div class="stat-card"><span class="stat-label">累计错题</span><strong id="mistake-total">0</strong><em>道</em></div>
+            <div class="stat-card"><span class="stat-label">近 7 天</span><strong id="mistake-week">0</strong><em>道</em></div>
+            <div class="stat-card"><span class="stat-label">涉及课程</span><strong id="mistake-courses">0</strong><em>门</em></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>错题列表</h2><p>可标注考点与心得，方便考前回看</p></div>
+              <div class="log-head-actions">
+                <select class="select compact" id="mistake-filter" aria-label="按课程筛选"><option value="all">全部课程</option></select>
+              </div>
+            </div>
+            <div class="mistake-list" id="mistake-list"></div>
+          </div>
+        </section>
+
+        <section class="page" id="page-logs" aria-labelledby="logs-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">过程数据</div>
+              <h1 id="logs-title">真实运行，留下证据。</h1>
+              <p class="page-sub">每次启动、同步、提醒与报错都会写入本地 JSONL，可按天镜像到 GitHub 的 process_logs/。</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-ghost" id="btn-open-logdir"><svg><use href="#i-folder"/></svg><span>打开日志目录</span></button>
+              <button class="btn btn-primary" id="btn-choose-repo"><svg><use href="#i-upload"/></svg><span>设为 Git 仓库</span></button>
+            </div>
+          </div>
+
+          <div class="stats-row log-stats" id="log-stats">
+            <div class="stat-card"><span class="stat-label">连续运行</span><strong id="log-days">0</strong><em>天</em></div>
+            <div class="stat-card"><span class="stat-label">今日事件</span><strong id="log-today">0</strong><em>条</em></div>
+            <div class="stat-card"><span class="stat-label">7 日错误</span><strong id="log-errors">0</strong><em>条</em></div>
+            <div class="stat-card accent"><span class="stat-label">7 日同步</span><strong id="log-syncs">0</strong><em>次</em></div>
+          </div>
+
+          <div class="dash-columns log-columns">
+            <div class="panel chart-panel">
+              <div class="panel-head">
+                <div><h2>近 7 天运行记录</h2><p>柱高表示当天记录的事件数量</p></div>
+                <span class="subtle-chip" id="log-session">会话 —</span>
+              </div>
+              <div class="log-chart" id="log-chart"></div>
+              <div class="chart-legend"><span><i class="legend-bar"></i>运行事件</span><span><i class="legend-error"></i>错误</span></div>
+            </div>
+            <div class="panel path-panel">
+              <div class="panel-head compact"><div><h2>日志路径</h2><p>本地优先，仓库镜像可选</p></div></div>
+              <div class="path-block"><span>本机日志</span><code id="log-local-path">—</code><button class="mini-btn" id="btn-open-local">打开</button></div>
+              <div class="path-block"><span>Git 镜像</span><code id="log-mirror-path">未设置</code><button class="mini-btn" id="btn-open-mirror">打开</button></div>
+              <div class="path-actions">
+                <button class="btn btn-soft btn-small" id="btn-export-logs"><svg><use href="#i-download"/></svg>导出全部日志</button>
+                <button class="btn btn-ghost btn-small" id="btn-clear-mirror">移除镜像</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel events-panel">
+            <div class="panel-head">
+              <div><h2>最近事件</h2><p>已脱敏：不含账号、密码、课程标题与作业正文</p></div>
+              <div class="log-head-actions">
+                <button class="link-btn" id="btn-log-filter">只看异常</button>
+                <button class="link-btn" id="btn-refresh-logs"><svg><use href="#i-sync"/></svg>刷新</button>
+              </div>
+            </div>
+            <div class="event-table-wrap">
+              <table class="event-table">
+                <thead><tr><th>时间</th><th>事件</th><th>结果</th><th>耗时</th><th>备注</th></tr></thead>
+                <tbody id="event-body"><tr><td colspan="5" class="empty-cell">正在载入…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" id="page-settings" aria-labelledby="settings-title">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">偏好设置</div>
+              <h1 id="settings-title">让提醒，按你的节奏来。</h1>
+              <p class="page-sub">所有设置即时生效，只保存在本机。</p>
+            </div>
+            <div class="page-actions"><button class="btn btn-ghost" id="btn-test-reminder"><svg><use href="#i-bell"/></svg><span>测试弹窗</span></button></div>
+          </div>
+
+          <div class="settings-grid">
+            <div class="settings-column">
+              <div class="panel settings-panel">
+                <div class="settings-title"><div><h2>提醒方式</h2><p>新任务默认使用，单个任务可单独调整</p></div><svg><use href="#i-bell"/></svg></div>
+                <div class="field-block">
+                  <label class="field-label">默认提前提醒</label>
+                  <div class="chip-options" id="reminder-offset-chips">
+                    <label class="chip"><input type="checkbox" value="1440" /><span>提前 1 天</span></label>
+                    <label class="chip"><input type="checkbox" value="60" /><span>提前 1 小时</span></label>
+                    <label class="chip"><input type="checkbox" value="10" /><span>提前 10 分钟</span></label>
+                    <label class="chip"><input type="checkbox" value="0" /><span>准时</span></label>
+                  </div>
+                </div>
+                <div class="switch-row"><div><strong>提醒声音</strong><p>静音时段内自动静默</p></div><label class="switch"><input type="checkbox" id="set-sound" /><span></span></label></div>
+                <div class="switch-row"><div><strong>静音时段</strong><p>弹窗仍会出现，但不播放声音</p></div><label class="switch"><input type="checkbox" id="set-quiet" /><span></span></label></div>
+                <div class="quiet-row" id="quiet-row">
+                  <label>从 <input type="time" id="quiet-start" /></label>
+                  <span>到</span>
+                  <label><input type="time" id="quiet-end" /></label>
+                </div>
+              </div>
+
+              <div class="panel settings-panel">
+                <div class="settings-title"><div><h2>运行与同步</h2><p>让提醒在后台可靠工作</p></div><svg><use href="#i-sync"/></svg></div>
+                <div class="switch-row"><div><strong>开机自动启动</strong><p>登录 Windows 后在后台启动，不打扰</p></div><label class="switch"><input type="checkbox" id="set-auto-launch" /><span></span></label></div>
+                <div class="switch-row"><div><strong>关闭窗口时隐藏到托盘</strong><p>任务栏不占位置；按 Ctrl+Alt+B 或双击桌面快捷方式找回</p></div><label class="switch"><input type="checkbox" id="set-close-tray" /><span></span></label></div>
+                <div class="switch-row"><div><strong>自动同步学习通</strong><p>已登录时按间隔检查新作业</p></div><label class="switch"><input type="checkbox" id="set-auto-sync" /><span></span></label></div>
+                <div class="field-block inline-field">
+                  <label class="field-label" for="set-sync-interval">同步间隔</label>
+                  <select id="set-sync-interval" class="select">
+                    <option value="10">每 10 分钟</option>
+                    <option value="30">每 30 分钟</option>
+                    <option value="60">每 1 小时</option>
+                    <option value="120">每 2 小时</option>
+                  </select>
+                </div>
+                <div class="switch-row"><div><strong>自动加入识别结果</strong><p>关闭后，识别结果会进入“待确认”列表</p></div><label class="switch"><input type="checkbox" id="set-auto-add" /><span></span></label></div>
+              </div>
+            </div>
+
+            <div class="settings-column">
+              <div class="panel settings-panel">
+                <div class="settings-title"><div><h2>数据与日志</h2><p>本地优先，可导出备份</p></div><svg><use href="#i-folder"/></svg></div>
+                <div class="path-block"><span>数据目录</span><code id="set-data-dir">—</code><button class="mini-btn" id="btn-open-data">打开</button></div>
+                <div class="path-block"><span>日志镜像</span><code id="set-mirror-dir">未设置</code><button class="mini-btn" id="btn-pick-repo">选择</button></div>
+                <p class="field-note">选择 GitHub 仓库根目录后，日志会按天镜像到 <code>process_logs/</code>，便于提交过程数据。</p>
+                <div class="button-row">
+                  <button class="btn btn-soft btn-small" id="btn-export-data"><svg><use href="#i-download"/></svg>导出数据</button>
+                  <button class="btn btn-ghost btn-small" id="btn-import-data"><svg><use href="#i-upload"/></svg>导入数据</button>
+                  <button class="btn btn-ghost btn-small" id="btn-scroll-logs"><svg><use href="#i-pulse"/></svg>运行日志</button>
+                </div>
+              </div>
+
+              <div class="panel settings-panel about-panel">
+                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.2.5</span></div></div>
+                <p>面向大学生的轻量课程任务提醒工具。非学习通官方产品，仅读取你本人有权访问的课程数据。</p>
+                <div class="about-links">
+                  <button class="link-btn" id="btn-open-data-2"><svg><use href="#i-folder"/></svg>数据目录</button>
+                  <button class="link-btn" id="btn-about-privacy"><svg><use href="#i-shield"/></svg>隐私说明</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel settings-panel settings-wide">
+            <div class="settings-title"><div><h2>界面与退出</h2><p>调大一点看得清，或者彻底停掉课铃</p></div><svg><use href="#i-sliders"/></svg></div>
+            <div class="field-block">
+              <label class="field-label">界面大小</label>
+              <div class="segmented compact scale-row" id="ui-scale"></div>
+              <p class="field-note" id="ui-scale-hint">当前 标准 · 100%</p>
+              <p class="field-note">也可以用 <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> 调整，<kbd>Ctrl</kbd> + <kbd>0</kbd> 回到标准。</p>
+              <button class="link-btn" id="btn-reopen-scale-guide">重新查看字号引导</button>
+            </div>
+            <div class="danger-row">
+              <div><strong>终止运行</strong><p>立即关闭课铃和后台服务，之后不会再提醒，直到重新打开。</p></div>
+              <button class="btn btn-danger" id="btn-quit-app"><svg><use href="#i-power"/></svg>终止课铃</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="task-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+      <div class="modal-head">
+        <div><span class="modal-eyebrow" id="task-modal-eyebrow">新建</span><h2 id="task-modal-title">新建日程</h2></div>
+        <button class="icon-btn" id="task-modal-close" aria-label="关闭"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <form id="task-form" novalidate>
+        <input type="hidden" id="task-id" />
+        <input type="hidden" id="task-source-key" />
+        <input type="hidden" id="task-source-url" />
+        <div class="form-grid">
+          <label class="field span-2"><span>标题 <i>*</i></span><input id="task-title" maxlength="120" placeholder="例如：软件工程课程设计报告" autocomplete="off" /></label>
+          <label class="field"><span>课程</span><input id="task-course" maxlength="60" placeholder="例如：软件工程" autocomplete="off" /></label>
+          <div class="field"><span>截止时间</span><input id="task-due" type="datetime-local" /><label class="inline-check"><input type="checkbox" id="task-no-deadline" /><span>无截止时间（长期任务）</span></label></div>
+          <div class="field"><span>类型</span><div class="radio-row" id="task-category-row">
+            <label class="radio-chip"><input type="radio" name="task-category" value="homework" checked /><span>作业</span></label>
+            <label class="radio-chip"><input type="radio" name="task-category" value="exam" /><span>考试</span></label>
+            <label class="radio-chip"><input type="radio" name="task-category" value="schedule" /><span>日程</span></label>
+            <label class="radio-chip"><input type="radio" name="task-category" value="other" /><span>其他</span></label>
+          </div></div>
+          <div class="field"><span>优先级</span><div class="radio-row" id="task-priority-row">
+            <label class="radio-chip"><input type="radio" name="task-priority" value="normal" checked /><span>普通</span></label>
+            <label class="radio-chip"><input type="radio" name="task-priority" value="important" /><span>重要</span></label>
+            <label class="radio-chip"><input type="radio" name="task-priority" value="urgent" /><span>紧急</span></label>
+          </div></div>
+          <div class="field span-2"><span>提醒</span><div class="chip-options" id="task-offset-chips">
+            <label class="chip"><input type="checkbox" value="1440" /><span>提前 1 天</span></label>
+            <label class="chip"><input type="checkbox" value="60" /><span>提前 1 小时</span></label>
+            <label class="chip"><input type="checkbox" value="10" /><span>提前 10 分钟</span></label>
+            <label class="chip"><input type="checkbox" value="0" /><span>准时</span></label>
+          </div></div>
+          <label class="field span-2"><span>重复</span><select id="task-recurrence" class="select">
+            <option value="none">不重复</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option>
+          </select></label>
+          <label class="field span-2"><span>备注</span><textarea id="task-notes" rows="3" maxlength="2000" placeholder="补充地点、提交方式或要带的东西…"></textarea></label>
+        </div>
+        <div class="form-error" id="task-form-error" hidden></div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-danger-ghost" id="task-delete" hidden><svg><use href="#i-trash"/></svg>删除</button>
+          <div class="modal-foot-right">
+            <button type="button" class="btn btn-ghost" id="task-cancel">取消</button>
+            <button type="submit" class="btn btn-primary" id="task-save">保存日程</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="scale-guide-modal" hidden>
+    <div class="modal modal-small scale-guide" role="dialog" aria-modal="true" aria-labelledby="scale-guide-title">
+      <div class="modal-head">
+        <div><span class="modal-eyebrow">第一次使用</span><h2 id="scale-guide-title">先把字调到看得清</h2></div>
+      </div>
+      <div class="scale-guide-body">
+        <p class="scale-guide-tip">不同电脑的缩放比例不一样，字可能偏小或发虚。选一个你觉得清楚的大小，随时可以在「偏好设置 → 界面大小」里改。</p>
+        <div class="segmented scale-guide-options" id="scale-guide-options"></div>
+        <p class="field-note" id="scale-guide-hint">当前 标准 · 100%</p>
+        <div class="scale-guide-demo">
+          <strong>示例任务：工程数学作业</strong>
+          <span>截止 11/14 23:59 · 还有 3 天</span>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-primary" id="scale-guide-done">就用这个大小</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="notice-modal" hidden>
+    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="notice-modal-title">
+      <div class="modal-head">
+        <div><span class="modal-eyebrow">通知</span><h2 id="notice-modal-title">手动添加通知</h2></div>
+        <button class="icon-btn" id="notice-modal-close" aria-label="关闭"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <form id="notice-form" novalidate>
+        <div class="form-grid">
+          <label class="field span-2"><span>标题 <i>*</i></span><input id="notice-title" maxlength="180" placeholder="例如：实验室器材归还提醒" autocomplete="off" /></label>
+          <label class="field"><span>课程 / 来源</span><input id="notice-course" maxlength="80" placeholder="例如：工程数学" autocomplete="off" /></label>
+          <label class="field"><span>类型</span><select id="notice-kind" class="select">
+            <option value="notice">通知</option><option value="assignment">作业</option><option value="exam">考试</option><option value="gear">器材</option>
+          </select></label>
+          <label class="field span-2"><span>正文</span><textarea id="notice-body" rows="4" maxlength="1200" placeholder="补充说明、地点或要求…"></textarea></label>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="notice-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="notice-save">保存通知</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="gear-modal" hidden>
+    <div class="modal modal-medium" role="dialog" aria-modal="true" aria-labelledby="gear-modal-title">
+      <div class="modal-head">
+        <div><span class="modal-eyebrow">器材借还</span><h2 id="gear-modal-title">登记借出</h2></div>
+        <button class="icon-btn" id="gear-modal-close" aria-label="关闭"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <form id="gear-form" novalidate>
+        <input type="hidden" id="gear-id" />
+        <div class="form-grid">
+          <label class="field span-2"><span>器材名称 <i>*</i></span><input id="gear-name" maxlength="120" placeholder="例如：数字示波器" autocomplete="off" /></label>
+          <label class="field"><span>编号</span><input id="gear-code" maxlength="60" placeholder="例如：OSC-07" autocomplete="off" /></label>
+          <label class="field"><span>借用人</span><input id="gear-borrower" maxlength="60" placeholder="姓名 / 小组" autocomplete="off" /></label>
+          <label class="field"><span>借出时间</span><input id="gear-borrowed" type="datetime-local" /></label>
+          <label class="field"><span>应还时间</span><input id="gear-due" type="datetime-local" /></label>
+          <label class="field span-2"><span>备注</span><textarea id="gear-note" rows="3" maxlength="500" placeholder="配件、存放位置或验收要求…"></textarea></label>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="gear-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="gear-save">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="mistake-modal" hidden>
+    <div class="modal modal-medium" role="dialog" aria-modal="true" aria-labelledby="mistake-modal-title">
+      <div class="modal-head">
+        <div><span class="modal-eyebrow">错题归档</span><h2 id="mistake-modal-title">记录一道错题</h2></div>
+        <button class="icon-btn" id="mistake-modal-close" aria-label="关闭"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <form id="mistake-form" novalidate>
+        <input type="hidden" id="mistake-id" />
+        <div class="form-grid">
+          <label class="field"><span>课程</span><input id="mistake-course" maxlength="80" placeholder="例如：工程数学" autocomplete="off" /></label>
+          <label class="field"><span>来源作业</span><input id="mistake-title" maxlength="160" placeholder="例如：第三次作业" autocomplete="off" /></label>
+          <label class="field span-2"><span>题目 <i>*</i></span><textarea id="mistake-question" rows="3" maxlength="2000" placeholder="题干或题号…"></textarea></label>
+          <label class="field"><span>我的答案</span><input id="mistake-my" maxlength="800" placeholder="当时写的" autocomplete="off" /></label>
+          <label class="field"><span>正确答案</span><input id="mistake-correct" maxlength="800" placeholder="标准答案" autocomplete="off" /></label>
+          <label class="field span-2"><span>解析 / 心得</span><textarea id="mistake-analysis" rows="3" maxlength="1200" placeholder="错在哪、下次怎么避免…"></textarea></label>
+          <label class="field span-2"><span>考点标签</span><input id="mistake-tags" maxlength="120" placeholder="用逗号分隔，例如：极限,等价无穷小" autocomplete="off" /></label>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="mistake-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="mistake-save">归档</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="confirm-modal" hidden>
+    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-icon" id="confirm-icon"><svg><use href="#i-trash"/></svg></div>
+      <h2 id="confirm-title">确认操作</h2>
+      <p id="confirm-text">此操作不可撤销。</p>
+      <div class="confirm-actions">
+        <button class="btn btn-ghost" id="confirm-cancel">取消</button>
+        <button class="btn btn-danger" id="confirm-ok">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="privacy-modal" hidden>
+    <div class="modal modal-medium" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
+      <div class="modal-head"><div><span class="modal-eyebrow">隐私</span><h2 id="privacy-title">数据如何处理</h2></div><button class="icon-btn" id="privacy-close" aria-label="关闭"><svg><use href="#i-x"/></svg></button></div>
+      <div class="privacy-body">
+        <p>课铃是本地优先的桌面工具，不运营云端账号系统，也不会上传你的学习通密码。</p>
+        <ul>
+          <li>登录在 Electron 内嵌浏览器中完成，Cookie 由 Chromium 的独立分区保存；课铃只读取登录状态与课程任务接口。</li>
+          <li>任务、设置、备份都保存在本机用户目录，可随时导出或删除。</li>
+          <li>运行日志不记录账号、密码、课程标题、作业正文或完整 URL，仅记录事件、耗时、频次与错误码。</li>
+          <li>日志镜像到 Git 仓库是可选操作，由你手动选择目录；默认只写本机。</li>
+          <li>课铃不是学习通官方产品，不提供代刷、自动提交作业等违反平台规则的功能。</li>
+        </ul>
+      </div>
+      <div class="modal-foot"><div></div><div class="modal-foot-right"><button class="btn btn-primary" id="privacy-ok">知道了</button></div></div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+  <script src="bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

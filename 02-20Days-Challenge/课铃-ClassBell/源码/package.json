@@ -1,0 +1,24 @@
+{
+  "name": "classbell",
+  "productName": "ClassBell",
+  "version": "1.2.5",
+  "description": "课铃 ClassBell - 课程作业自动识别与到期提醒工具",
+  "main": "server/server.js",
+  "author": {
+    "name": "ClassBell"
+  },
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node server/server.js --port=48765",
+    "test": "node tests/run-all.js",
+    "icon": "node scripts/generate-icon.js",
+    "preview": "node scripts/make-preview.js",
+    "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "package": "npm run build:desktop && node scripts/package-native.js",
+    "dist": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

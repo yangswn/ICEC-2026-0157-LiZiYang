@@ -1,0 +1,101 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body {
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  color: #1b2722;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.reminder-card {
+  position: absolute; inset: 7px;
+  border-radius: 18px;
+  background: #fffdf8;
+  border: 1px solid #e7dfcf;
+  box-shadow: 0 26px 70px rgba(12, 37, 29, 0.3), 0 4px 14px rgba(12, 37, 29, 0.14);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  animation: cardIn 0.28s cubic-bezier(0.18, 0.82, 0.3, 1);
+}
+@keyframes cardIn { from { opacity: 0; transform: translateY(12px) scale(0.975); } to { opacity: 1; transform: none; } }
+.drag-zone { -webkit-app-region: drag; }
+.no-drag, button { -webkit-app-region: no-drag; }
+
+.reminder-top {
+  height: 84px;
+  flex: 0 0 84px;
+  background:
+    radial-gradient(circle at 84% 20%, rgba(229, 189, 114, 0.26), transparent 34%),
+    linear-gradient(118deg, #15493d, #1d6351 62%, #174d40);
+  color: #f9f4e6;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 18px;
+  position: relative;
+}
+.top-pattern {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(110deg, transparent 40%, black);
+}
+.bell-mark {
+  width: 42px; height: 42px; flex: 0 0 auto;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  display: grid; place-items: center;
+  position: relative; z-index: 1;
+}
+.bell-mark svg { width: 20px; height: 20px; color: #edc981; }
+.top-copy { position: relative; z-index: 1; min-width: 0; }
+.top-copy span { display: block; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: rgba(249, 244, 230, 0.52); margin-bottom: 4px; }
+.top-copy strong { display: block; font-family: "STZhongsong", "Songti SC", "Microsoft YaHei UI", serif; font-size: 18px; letter-spacing: 1.2px; font-weight: 600; }
+.close-btn {
+  margin-left: auto; position: relative; z-index: 2;
+  width: 26px; height: 26px; border: 0; border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07); color: rgba(249, 244, 230, 0.65);
+  display: grid; place-items: center; cursor: pointer;
+}
+.close-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.close-btn svg { width: 13px; height: 13px; }
+
+.reminder-body { padding: 17px 21px 12px; flex: 1; min-height: 0; }
+.reminder-course { font-size: 9.5px; letter-spacing: 0.9px; color: #9a8a68; font-weight: 700; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reminder-title {
+  margin: 6px 0 9px;
+  font-size: 20px; line-height: 1.3; font-weight: 650; letter-spacing: 0.2px;
+  color: #1b2722;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  min-height: 26px;
+}
+.reminder-meta { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #767d75; }
+.meta-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta-item.accent { color: #b07a24; font-weight: 700; }
+.meta-dot { width: 3px; height: 3px; border-radius: 50%; background: #c9c3b4; flex: 0 0 auto; }
+.reminder-actions { display: flex; gap: 7px; margin-top: 15px; }
+.r-btn {
+  height: 34px; border-radius: 9px; padding: 0 12px;
+  font-family: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid transparent; white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s, transform 0.1s;
+}
+.r-btn:active { transform: translateY(1px); }
+.r-btn-ghost { flex: 1; background: #f8f4ea; border-color: #e9e1d2; color: #6f766e; }
+.r-btn-ghost:hover { background: #f2ecdf; }
+.r-btn-gold { background: #f5e9cf; border-color: #ecd8ae; color: #7d5b1e; }
+.r-btn-gold:hover { background: #f0dfbb; }
+.r-btn-primary { background: linear-gradient(180deg, #247862, #1a604e); color: #fffdf5; box-shadow: 0 5px 12px rgba(25, 87, 71, 0.16); }
+.r-btn-primary:hover { background: linear-gradient(180deg, #2b826a, #1c6854); }
+.reminder-footer {
+  height: 28px; flex: 0 0 28px;
+  border-top: 1px solid #f0eadf;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  font-size: 8.5px; color: #a5a99f;
+}
+.footer-brand { display: flex; align-items: center; gap: 5px; }
+.footer-brand img { width: 12px; height: 12px; border-radius: 3px; opacity: 0.82; }
+.footer-hint { letter-spacing: 0.1px; }

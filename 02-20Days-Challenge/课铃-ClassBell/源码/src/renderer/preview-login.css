@@ -1,0 +1,54 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: #f5f7f6;
+  color: #1f2a25;
+  overflow: hidden;
+}
+.preview-ribbon {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 5; background: #e8f0ea; color: #3d6b58;
+  border: 1px solid #d3e3d8; border-radius: 20px;
+  font-size: 9px; letter-spacing: 0.5px; padding: 4px 10px;
+}
+.login-page { height: 100%; display: flex; flex-direction: column; background: #fff; }
+.login-head {
+  height: 58px; flex: 0 0 58px; display: flex; align-items: center; gap: 10px;
+  padding: 0 24px; border-bottom: 1px solid #edf0ed;
+}
+.cx-logo {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, #2a9d7b, #19725a);
+  color: #fff; display: grid; place-items: center; font-size: 15px; font-weight: 700;
+}
+.cx-name strong { display: block; font-size: 13px; letter-spacing: 0.4px; }
+.cx-name span { display: block; margin-top: 1px; font-size: 7px; letter-spacing: 2px; color: #a4aca6; }
+.head-links { margin-left: auto; display: flex; gap: 18px; font-size: 10px; color: #919a93; }
+.login-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 0%, #f4f8f5, #fff 55%); min-height: 0; }
+.login-card {
+  width: min(360px, 78%);
+  background: #fff;
+  border: 1px solid #e8ece8;
+  border-radius: 14px;
+  box-shadow: 0 16px 45px rgba(34, 59, 47, 0.08);
+  padding: 22px 26px 18px;
+}
+.card-head h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: 0.5px; }
+.card-head p { margin: 5px 0 0; font-size: 9.5px; color: #9ca39d; }
+.tabs { display: flex; gap: 18px; margin-top: 17px; border-bottom: 1px solid #edf0ed; }
+.tab { border: 0; background: none; padding: 0 0 8px; font-size: 10.5px; color: #9aa19b; position: relative; }
+.tab.active { color: #19725a; font-weight: 600; }
+.tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: #2a9d7b; border-radius: 2px; }
+.login-body { display: flex; align-items: center; gap: 17px; padding: 20px 2px 15px; }
+.qr-wrap { position: relative; width: 108px; height: 108px; flex: 0 0 108px; padding: 6px; border: 1px solid #edf0ed; border-radius: 8px; overflow: hidden; }
+.qr { width: 100%; height: 100%; display: block; }
+.scan-line { position: absolute; left: 8px; right: 8px; top: 30%; height: 1px; background: linear-gradient(90deg, transparent, #41b18e, transparent); box-shadow: 0 0 7px #41b18e; animation: scan 2.8s ease-in-out infinite; }
+@keyframes scan { 0%,100% { top: 22%; opacity: .3; } 50% { top: 76%; opacity: 1; } }
+.qr-copy { min-width: 0; }
+.qr-copy strong { display: block; font-size: 11px; color: #2a3831; }
+.qr-copy p { margin: 5px 0 12px; font-size: 9px; line-height: 1.6; color: #a0a69f; }
+.login-note { display: flex; align-items: center; gap: 5px; font-size: 8.5px; color: #6c8a7c; background: #f1f7f3; border-radius: 5px; padding: 5px 7px; }
+.login-note .dot { width: 5px; height: 5px; border-radius: 50%; background: #42a985; }
+.card-foot { border-top: 1px solid #f0f2f0; padding-top: 11px; font-size: 8px; color: #b0b5b1; text-align: center; }
+.login-copyright { margin: 17px 0 0; font-size: 8px; color: #b7bcb8; }

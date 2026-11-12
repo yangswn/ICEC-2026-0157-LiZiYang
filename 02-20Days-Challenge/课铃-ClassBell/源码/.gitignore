@@ -1,0 +1,15 @@
+node_modules/
+.cache/
+.npm-cache/
+.test-data/
+.preview/
+dist/
+desktop/*.exe
+installer/build/
+*.log
+*.tmp
+*.bak
+data/
+
+install.id
+
