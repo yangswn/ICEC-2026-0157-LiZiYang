@@ -132,12 +132,14 @@ Cookie 改由本机保存，重启自动恢复。
 ```
 课铃-ClassBell/
 ├── README.md                    ← 本文件：原文对照与现状
+├── 源码/                        ← 课铃 1.2.5 完整源码（110 个文件）
+├── feedback/                    ← 用户反馈截图（4 张）
 ├── 2026-11-09-首次可运行总结.md    ← 当日总结原文存档
 └── 用户反馈-收集表.md             ← 8 位用户的收集模板与话术
 ```
 
-> 源代码与日志主体在 `campus-pulse/` 仓库（另有独立 Git 历史，6 次提交）。
-> 本目录只放**投递用的说明与凭证**，避免两套代码重复。
+> 源码就在本目录 `源码/`；带完整 Git 历史（25 次提交）的版本在 `yangswn/ClassBell`。
+> 每日运行日志在 `02-20Days-Challenge/process_logs/`。
 
 ---
 
@@ -243,11 +245,11 @@ Win11 一般自带；**Win10、精简系统、Ghost 系统、Windows 沙盒不�
 
 | 内容 | 放在哪 | 说明 |
 |---|---|---|
-| **源代码（压缩包）** | 本目录 `ClassBell-源码-1.0.12.zip`（5.22 MB，98 个文件）| 解开即 `campus-pulse/`，含 `desktop/` `server/` `src/` `docs/` `tests/` `installer/` `tools/` `process_logs/`；已排除 `node_modules`、`dist`、`build`、`.git`。**含 `tools/MicrosoftEdgeWebview2Setup.exe`，可重建安装包** |
-| **完整提交历史** | 独立仓库 `campus-pulse`（6 次提交，已公开）| zip 不带历史，**Commit 核验看那个仓库** |
+| **源代码** | 本目录 `源码/`（1.2.5，110 个文件）| 含 `desktop/` `server/` `src/` `docs/` `tests/` `installer/` `tools/`；已排除 `node_modules`、`dist`、`.git`。**含 `tools/MicrosoftEdgeWebview2Setup.exe`，可重建安装包** |
+| **完整提交历史** | 独立仓库 `yangswn/ClassBell`（25 次提交，私有）| 本目录的 `源码/` 是导出快照，不带历史，**Commit 与 Diff 核验看那个仓库** |
 | **每日运行日志** | 本仓库 `02-20Days-Challenge/process_logs/` | 对应原文「每日同步进 process_logs/」|
 
-> **两处都有，是为了互补**：zip 让评审在一个仓库里就能拿到全部源码；`campus-pulse` 提供可点击的 6 次提交与 Diff。
+> **两处都有，是为了互补**：`源码/` 让评审在一个仓库里就能逐个点开文件；`ClassBell` 提供可点击的 25 次提交与 Diff，能看出每一次改动的动机。
 
 ---
 
