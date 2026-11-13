@@ -15,6 +15,8 @@ namespace ClassBell.Setup
         private static void Main(string[] args)
         {
             bool silent = Array.IndexOf(args, "/S") >= 0 || Array.IndexOf(args, "--silent") >= 0;
+            // /KEEPDIR：只清内容不删目录，由安装器接管（避免延迟 rmdir 删掉新装的文件）
+            bool keepDir = Array.IndexOf(args, "/KEEPDIR") >= 0 || Array.IndexOf(args, "--keep-dir") >= 0;
             string dir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             if (!silent)
             {
@@ -68,13 +70,16 @@ namespace ClassBell.Setup
                     try { Directory.Delete(sub, true); } catch { }
                 }
 
-                var cleanup = new ProcessStartInfo("cmd.exe",
-                    "/c timeout /t 2 /nobreak >nul & rmdir /s /q \"" + dir + "\"")
+                if (!keepDir)
                 {
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                Process.Start(cleanup);
+                    var cleanup = new ProcessStartInfo("cmd.exe",
+                        "/c timeout /t 2 /nobreak >nul & rmdir /s /q \"" + dir + "\"")
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    Process.Start(cleanup);
+                }
 
                 if (!silent)
                     MessageBox.Show("课铃 ClassBell 已卸载。", "卸载完成", MessageBoxButtons.OK, MessageBoxIcon.Information);

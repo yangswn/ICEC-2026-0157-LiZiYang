@@ -254,11 +254,91 @@ namespace ClassBell
                     ShowBrowserFallback(ex);
                     return;
                 }
-                MessageBox.Show(this, "课铃启动失败：\n" + ex.Message + "\n\n日志目录：" + Path.Combine(dataDir, "process_logs"),
-                    "课铃 ClassBell", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                var friendly = DescribeStartupFailure(ex);
+                MessageBox.Show(this, friendly.Body + "\n\n日志目录：" + Path.Combine(dataDir, "process_logs"),
+                    friendly.Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 exiting = true;
                 Close();
             }
+        }
+
+        /// <summary>
+        /// 把启动失败的异常翻译成用户能看懂的话。
+        /// 设计原则：能识别的给“人话 + 下一步怎么办”；识别不了的保留原文（便于报障），
+        /// 调用方仍会附上日志目录。
+        /// </summary>
+        private static FriendlyFailure DescribeStartupFailure(Exception ex)
+        {
+            string text = CollectErrorText(ex);
+            int code = 0;
+            try
+            {
+                if (ex is System.Runtime.InteropServices.COMException)
+                    code = ((System.Runtime.InteropServices.COMException)ex).HResult;
+                if (code == 0 && ex.InnerException is System.Runtime.InteropServices.COMException)
+                    code = ((System.Runtime.InteropServices.COMException)ex.InnerException).HResult;
+            }
+            catch { }
+
+            // 0x80040004 = E_ABORT：几乎总是“另一个实例占着同一个 WebView2 数据目录”
+            bool aborted = code == unchecked((int)0x80040004)
+                           || text.IndexOf("E_ABORT", StringComparison.OrdinalIgnoreCase) >= 0
+                           || text.IndexOf("0x80040004", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (aborted)
+            {
+                return new FriendlyFailure(
+                    "课铃打不开：已经有另一个课铃在运行",
+                    "课铃的内嵌浏览器同一时间只能被一个课铃使用。\r\n\r\n"
+                    + "现在很可能还有另一个课铃在后台（图标折叠在右下角 ^ 里），\r\n"
+                    + "它占着同一份浏览器数据，所以这次启动被中止了。\r\n\r\n"
+                    + "接下来怎么办：\r\n"
+                    + "1) 在右下角 ^ 里找到课铃图标，右键 →「退出课铃」；\r\n"
+                    + "2) 或者打开任务管理器，结束所有 ClassBell.exe；\r\n"
+                    + "3) 再重新打开课铃。");
+            }
+
+            if (LooksLikeMissingWebView2(ex))
+            {
+                return new FriendlyFailure(
+                    "课铃打不开：缺少浏览器组件",
+                    "这台电脑没有安装 Microsoft Edge WebView2 运行时，课铃的界面需要它才能显示。\r\n\r\n"
+                    + "接下来怎么办：安装 WebView2 运行时后重新打开课铃；\r\n"
+                    + "安装包内已自带该组件，重新运行一次安装包通常就能补上。");
+            }
+
+            if (code == unchecked((int)0x80070005) || text.IndexOf("拒绝访问", StringComparison.Ordinal) >= 0)
+            {
+                return new FriendlyFailure(
+                    "课铃打不开：没有写入权限",
+                    "课铃需要在自己的数据目录里读写文件，但系统拒绝了。\r\n\r\n"
+                    + "接下来怎么办：检查安全软件是否拦截了课铃；\r\n"
+                    + "或把课铃安装到你有权限的目录（例如文档目录）后重试。");
+            }
+
+            // 识别不了的：原文照旧，便于报障
+            return new FriendlyFailure("课铃启动失败", "课铃启动失败：\r\n" + ex.Message);
+        }
+
+        private static string CollectErrorText(Exception ex)
+        {
+            var builder = new System.Text.StringBuilder();
+            var current = ex;
+            int depth = 0;
+            while (current != null && depth < 5)
+            {
+                builder.Append(current.GetType().Name).Append(' ').Append(current.Message).Append(' ');
+                current = current.InnerException;
+                depth += 1;
+            }
+            return builder.ToString();
+        }
+
+        private struct FriendlyFailure
+        {
+            public readonly string Title;
+            public readonly string Body;
+            public FriendlyFailure(string title, string body) { Title = title; Body = body; }
         }
 
         private static bool LooksLikeMissingWebView2(Exception ex)

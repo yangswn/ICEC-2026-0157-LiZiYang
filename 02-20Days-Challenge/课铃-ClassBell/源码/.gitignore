@@ -13,3 +13,5 @@ data/
 
 install.id
 
+
+.test-tmp/

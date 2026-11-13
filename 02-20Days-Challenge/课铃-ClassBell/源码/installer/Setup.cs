@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -14,7 +15,7 @@ namespace ClassBell.Setup
     internal static class Program
     {
         internal const string AppName = "课铃 ClassBell";
-        internal const string Version = "1.3.9";
+        internal const string Version = "1.4.2";
         internal const string Publisher = "ClassBell";
         internal const string ExeName = "ClassBell.exe";
         internal const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassBell";
@@ -191,6 +192,9 @@ namespace ClassBell.Setup
             {
                 throw new Exception("课铃仍在运行，已取消安装。请退出课铃后重试。");
             }
+            // 先卸旧版：避免旧文件/快捷方式/注册表残留，也避免新旧文件混在一起
+            string preservedData = UpgradeFromPrevious(dir, progress);
+
             string webviewNote;
             EnsureWebView2(progress, out webviewNote);
             Directory.CreateDirectory(dir);
@@ -234,6 +238,9 @@ namespace ClassBell.Setup
 
             string exe = Path.Combine(dir, ExeName);
             if (!File.Exists(exe)) throw new Exception("安装包解压后缺少 ClassBell.exe。");
+
+            // 便携版数据在安装目录里，卸载时会被清掉，这里恢复回来
+            RestorePreservedData(dir, preservedData);
 
             try
             {
@@ -429,6 +436,200 @@ namespace ClassBell.Setup
                 }
             }
             catch { }
+        }
+
+        /// <summary>读已安装版本号：注册表优先，退化为读旧 exe 的文件版本。</summary>
+        internal static System.Version ReadInstalledVersion(string dir)
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(UninstallKey))
+                {
+                    if (key != null)
+                    {
+                        string text = key.GetValue("DisplayVersion") as string;
+                        System.Version parsed;
+                        if (!string.IsNullOrWhiteSpace(text) && System.Version.TryParse(text, out parsed)) return parsed;
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                string exe = Path.Combine(dir, ExeName);
+                if (File.Exists(exe))
+                {
+                    var info = FileVersionInfo.GetVersionInfo(exe);
+                    System.Version parsed;
+                    if (System.Version.TryParse(info.FileVersion, out parsed)) return parsed;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 卸载旧版本：只传 /S（静默，默认保留 %APPDATA%\ClassBell）与 /KEEPDIR（不删目录，
+        /// 避免卸载器延迟 rmdir 删掉安装器稍后解压的文件）。
+        /// </summary>
+        private static bool UninstallPrevious(string dir)
+        {
+            string uninstaller = Path.Combine(dir, "Uninstall.exe");
+            if (!File.Exists(uninstaller)) return false;
+
+            TryLog("uninstalling previous version from " + dir);
+            try
+            {
+                var info = new ProcessStartInfo
+                {
+                    FileName = uninstaller,
+                    Arguments = "/S /KEEPDIR",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = dir
+                };
+                using (var process = Process.Start(info))
+                {
+                    if (process == null) return false;
+                    if (!process.WaitForExit(60000))
+                    {
+                        TryLog("uninstaller timeout, killing");
+                        try { process.Kill(); } catch { }
+                        try { process.WaitForExit(5000); } catch { }
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                TryLog("uninstall previous failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>把安装目录里的便携数据（data\）备份到临时目录，装完再恢复。</summary>
+        private static string PreservePortableData(string dir)
+        {
+            string data = Path.Combine(dir, "data");
+            if (!Directory.Exists(data)) return null;
+            try
+            {
+                // 放在安装目录的同级位置：同盘、可写，且不会被安装器的目录清理波及
+                string parent = Path.GetDirectoryName(dir);
+                if (string.IsNullOrEmpty(parent)) parent = Path.GetTempPath();
+                string backup = Path.Combine(parent, ".classbell-data-backup-" + Guid.NewGuid().ToString("N"));
+                CopyTree(data, backup);
+                TryLog("preserved portable data -> " + backup);
+                return backup;
+            }
+            catch (Exception ex)
+            {
+                TryLog("preserve portable data failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static void RestorePreservedData(string dir, string backup)
+        {
+            if (string.IsNullOrEmpty(backup) || !Directory.Exists(backup)) return;
+            try
+            {
+                string data = Path.Combine(dir, "data");
+                if (!Directory.Exists(data)) CopyTree(backup, data);
+                TryLog("restored portable data");
+            }
+            catch (Exception ex)
+            {
+                TryLog("restore portable data failed: " + ex.Message);
+            }
+            finally
+            {
+                try { Directory.Delete(backup, true); } catch { }
+            }
+        }
+
+        private static void CopyTree(string from, string to)
+        {
+            Directory.CreateDirectory(to);
+            foreach (string file in Directory.GetFiles(from))
+            {
+                File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
+            }
+            foreach (string sub in Directory.GetDirectories(from))
+            {
+                CopyTree(sub, Path.Combine(to, Path.GetFileName(sub)));
+            }
+        }
+
+        /// <summary>
+        /// 已装旧版本且版本更低时：备份便携数据 → 跑卸载器 → 清掉残留文件。
+        /// 返回便携数据备份路径（没有则 null），由调用方在解压后恢复。
+        /// </summary>
+        private static string UpgradeFromPrevious(string dir, IProgress<int> progress)
+        {
+            System.Version installed = ReadInstalledVersion(dir);
+            if (installed == null) return null;
+
+            System.Version current;
+            if (!System.Version.TryParse(Program.Version, out current)) return null;
+            if (installed >= current)
+            {
+                TryLog("installed " + installed + " >= current " + current + ", skip uninstall");
+                return null;
+            }
+
+            if (progress != null) progress.Report(1);
+            string preserved = PreservePortableData(dir);
+            UninstallPrevious(dir);
+
+            // 旧版卸载器会安排 "timeout 2 & rmdir /s /q <dir>"。
+            // 必须先把这个延迟删除等过去，否则它会把我们刚解压的文件删掉。
+            WaitForDirectoryRemoved(dir, 20000);
+            Thread.Sleep(2500);
+            return preserved;
+        }
+
+        /// <summary>
+        /// 主动删掉安装目录并轮询到“确实不存在”。
+        /// 旧版卸载器排的延迟 rmdir 会在这段时间里落空，从而不会误删新文件。
+        /// </summary>
+        private static void WaitForDirectoryRemoved(string dir, int timeoutMs)
+        {
+            var started = Environment.TickCount;
+            while (Environment.TickCount - started < timeoutMs)
+            {
+                try
+                {
+                    if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                }
+                catch { }
+                if (!Directory.Exists(dir)) return;
+                Thread.Sleep(400);
+            }
+            TryLog("install dir still present after wait: " + dir);
+        }
+
+        /// <summary>卸载后清掉目录里剩下的旧文件（保留目录本身）。</summary>
+        private static void ClearInstallDir(string dir)
+        {
+            try
+            {
+                if (!Directory.Exists(dir)) return;
+                foreach (string file in Directory.GetFiles(dir))
+                {
+                    try { File.Delete(file); } catch { }
+                }
+                foreach (string sub in Directory.GetDirectories(dir))
+                {
+                    try { Directory.Delete(sub, true); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                TryLog("clear install dir failed: " + ex.Message);
+            }
         }
 
         internal static Stream FindResource(string suffix)
