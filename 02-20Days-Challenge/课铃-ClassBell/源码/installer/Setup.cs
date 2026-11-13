@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -13,7 +14,7 @@ namespace ClassBell.Setup
     internal static class Program
     {
         internal const string AppName = "课铃 ClassBell";
-        internal const string Version = "1.3.8";
+        internal const string Version = "1.3.9";
         internal const string Publisher = "ClassBell";
         internal const string ExeName = "ClassBell.exe";
         internal const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassBell";
@@ -21,8 +22,6 @@ namespace ClassBell.Setup
         [STAThread]
         private static void Main(string[] args)
         {
-            try { File.WriteAllText(@"C:\Users\24373\Documents\deepseek-harness\default-workspace\.tools\setup-main.log", "MAIN " + string.Join(" ", args)); } catch { }
-            try { Console.Error.WriteLine("SETUP MAIN " + string.Join(" ", args)); } catch { }
             TryLog("MAIN args=" + string.Join(" ", args));
             bool silent = Array.IndexOf(args, "/S") >= 0 || Array.IndexOf(args, "--silent") >= 0;
             TryLog("silent=" + silent);
@@ -48,9 +47,17 @@ namespace ClassBell.Setup
                 return;
             }
 
+            // GUI 模式也接受 --dir=<路径>：预填安装目录（覆盖安装/自动化测试都用得上）
+            string initialDir = null;
+            foreach (string arg in args)
+            {
+                if (arg.StartsWith("--dir=", StringComparison.OrdinalIgnoreCase))
+                    initialDir = arg.Substring(6).Trim('"');
+            }
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new SetupForm());
+            Application.Run(new SetupForm(initialDir));
         }
 
         internal static string DefaultDir
@@ -177,7 +184,13 @@ namespace ClassBell.Setup
         {
             dir = Path.GetFullPath(dir);
             TryLog("Install to " + dir);
-            KillApp();
+
+            // 覆盖安装前必须先让旧版本退出：runtime\node.exe 被主程序托管，
+            // 直接覆盖会报“文件正由另一进程使用”。
+            if (!EnsureNoRunningInstances(dir, progress))
+            {
+                throw new Exception("课铃仍在运行，已取消安装。请退出课铃后重试。");
+            }
             string webviewNote;
             EnsureWebView2(progress, out webviewNote);
             Directory.CreateDirectory(dir);
@@ -268,6 +281,144 @@ namespace ClassBell.Setup
             try { Process.Start(Path.Combine(dir, ExeName)); } catch { }
         }
 
+        /// <summary>
+        /// 只把“本安装目录内”的进程算作待关闭对象：
+        ///   &lt;dir&gt;\ClassBell.exe
+        ///   &lt;dir&gt;\runtime\node.exe
+        /// 严格按可执行文件全路径比较，绝不按进程名批量杀 —— 用户机器上可能还有
+        /// 别的 Node 程序（开发服务器等），误杀会造成数据丢失。
+        /// </summary>
+        private static List<Process> FindRunningInstances(string dir)
+        {
+            var found = new List<Process>();
+            string root;
+            try { root = Path.GetFullPath(dir).TrimEnd('\\'); }
+            catch { return found; }
+
+            var names = new[] { "ClassBell", "node" };
+            foreach (string name in names)
+            {
+                Process[] all;
+                try { all = Process.GetProcessesByName(name); }
+                catch { continue; }
+
+                foreach (var process in all)
+                {
+                    try
+                    {
+                        string exe;
+                        try { exe = process.MainModule.FileName; }
+                        catch { continue; }   // 权限/位数不同读不到，跳过而不是崩溃
+
+                        string full;
+                        try { full = Path.GetFullPath(exe); }
+                        catch { continue; }
+
+                        if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        string leaf = Path.GetFileName(full);
+                        bool isMain = string.Equals(leaf, ExeName, StringComparison.OrdinalIgnoreCase);
+                        bool isNode = string.Equals(leaf, "node.exe", StringComparison.OrdinalIgnoreCase)
+                                      && full.IndexOf(Path.DirectorySeparatorChar + "runtime" + Path.DirectorySeparatorChar,
+                                          StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (isMain || isNode) found.Add(process);
+                        else process.Dispose();
+                    }
+                    catch { }
+                }
+            }
+            return found;
+        }
+
+        /// <summary>主程序优先，node 次之：反过来主程序会立刻把 node 重启。</summary>
+        private static void CloseInstances(List<Process> list)
+        {
+            var ordered = new List<Process>();
+            foreach (var process in list)
+            {
+                string leaf = "";
+                try { leaf = Path.GetFileName(process.MainModule.FileName); } catch { }
+                if (string.Equals(leaf, ExeName, StringComparison.OrdinalIgnoreCase)) ordered.Add(process);
+            }
+            foreach (var process in list)
+            {
+                if (!ordered.Contains(process)) ordered.Add(process);
+            }
+
+            foreach (var process in ordered)
+            {
+                try
+                {
+                    if (process.HasExited) continue;
+                    TryLog("closing pid=" + process.Id);
+                    // 先礼后兵：请求正常关闭，2 秒不退再强杀
+                    try { process.CloseMainWindow(); } catch { }
+                    if (process.WaitForExit(2000)) continue;
+                    try { process.Kill(); } catch { }
+                    process.WaitForExit(3000);
+                }
+                catch { }
+            }
+        }
+
+        private static bool StillRunning(List<Process> list)
+        {
+            foreach (var process in list)
+            {
+                try { if (!process.HasExited) return true; } catch { }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 确认旧版本已退出。GUI 模式下弹窗告知并允许自动关闭/重试；
+        /// 静默安装直接尝试关闭，关不掉就返回 false（由调用方报错退出）。
+        /// </summary>
+        private static bool EnsureNoRunningInstances(string dir, IProgress<int> progress)
+        {
+            bool interactive = progress != null;
+
+            for (int round = 0; round < 5; round++)
+            {
+                List<Process> running = FindRunningInstances(dir);
+                if (running.Count == 0) return true;
+
+                int count = running.Count;
+                if (interactive)
+                {
+                    bool go = PromptForm.Ask(
+                        "课铃正在运行",
+                        "要安装新版本，需要先关闭正在运行的课铃。\r\n\r\n"
+                        + "检测到：ClassBell.exe、runtime\\node.exe（共 " + count + " 个进程）\r\n\r\n"
+                        + "关闭后你正在编辑的内容会自动保存。",
+                        "自动关闭并继续安装", "取消", false, "");
+                    if (!go)
+                    {
+                        foreach (var process in running) process.Dispose();
+                        return false;
+                    }
+                }
+
+                CloseInstances(running);
+                foreach (var process in running) process.Dispose();
+
+                if (!StillRunning(FindRunningInstances(dir))) return true;
+
+                if (!interactive) return false;   // 静默安装不弹窗，直接失败
+
+                bool retry = PromptForm.Ask(
+                    "无法自动关闭课铃",
+                    "请手动退出后再试：\r\n\r\n"
+                    + "1) 在系统托盘（可能折叠在右下角 ^ 里）右键课铃图标 →「退出课铃」\r\n"
+                    + "2) 或在任务管理器里结束 ClassBell.exe\r\n\r\n"
+                    + "然后点「重试」。",
+                    "重试", "取消", false, "");
+                if (!retry) return false;
+            }
+            return FindRunningInstances(dir).Count == 0;
+        }
+
         internal static void KillApp()
         {
             try
@@ -328,6 +479,78 @@ namespace ClassBell.Setup
         }
     }
 
+    /// <summary>安装器里用到的极简确认框：固定两个按钮，避免 MessageBox 的“是/否”语义不清。</summary>
+    internal sealed class PromptForm : Form
+    {
+        private PromptForm(string title, string body, string okText, string cancelText, bool danger, string detail)
+        {
+            Text = title;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterScreen;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            BackColor = Color.FromArgb(247, 244, 236);
+            Font = new Font("Microsoft YaHei UI", 9F);
+            ClientSize = new Size(448, string.IsNullOrEmpty(detail) ? 214 : 250);
+
+            var head = new Label
+            {
+                Text = title,
+                Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(43, 58, 48),
+                Bounds = new Rectangle(22, 18, 402, 28),
+                AutoSize = false
+            };
+
+            var text = new Label
+            {
+                Text = body,
+                ForeColor = Color.FromArgb(90, 100, 92),
+                Bounds = new Rectangle(22, 52, 402, string.IsNullOrEmpty(detail) ? 96 : 120),
+                AutoSize = false
+            };
+
+            var ok = new Button
+            {
+                Text = okText,
+                DialogResult = DialogResult.OK,
+                Bounds = new Rectangle(150, ClientSize.Height - 50, 150, 34),
+                BackColor = danger ? Color.FromArgb(196, 85, 67) : Color.FromArgb(46, 74, 58),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            ok.FlatAppearance.BorderSize = 0;
+
+            var cancel = new Button
+            {
+                Text = cancelText,
+                DialogResult = DialogResult.Cancel,
+                Bounds = new Rectangle(310, ClientSize.Height - 50, 116, 34),
+                BackColor = Color.FromArgb(236, 231, 219),
+                ForeColor = Color.FromArgb(60, 70, 62),
+                FlatStyle = FlatStyle.Flat
+            };
+            cancel.FlatAppearance.BorderSize = 0;
+
+            Controls.Add(head);
+            Controls.Add(text);
+            Controls.Add(ok);
+            Controls.Add(cancel);
+            AcceptButton = ok;
+            CancelButton = cancel;
+        }
+
+        /// <summary>返回 true = 用户点了主按钮（继续/重试）。</summary>
+        internal static bool Ask(string title, string body, string okText, string cancelText, bool danger, string detail)
+        {
+            using (var form = new PromptForm(title, body, okText, cancelText, danger, detail))
+            {
+                return form.ShowDialog() == DialogResult.OK;
+            }
+        }
+    }
+
     internal sealed class SetupForm : Form
     {
         private readonly TextBox pathBox;
@@ -339,7 +562,7 @@ namespace ClassBell.Setup
         private Panel finishPanel;
         private bool busy;
 
-        public SetupForm()
+        public SetupForm(string initialDir = null)
         {
             Text = "课铃 ClassBell 安装程序";
             ClientSize = new Size(680, 500);
@@ -392,7 +615,7 @@ namespace ClassBell.Setup
 
             var pathLabel = new Label { Text = "安装位置", ForeColor = Color.FromArgb(60, 70, 62), Location = new Point(34, 184), AutoSize = true };
             Controls.Add(pathLabel);
-            pathBox = new TextBox { Text = Program.DefaultDir, Location = new Point(34, 208), Width = 512, Height = 30, BorderStyle = BorderStyle.FixedSingle };
+            pathBox = new TextBox { Text = string.IsNullOrWhiteSpace(initialDir) ? Program.DefaultDir : initialDir, Location = new Point(34, 208), Width = 512, Height = 30, BorderStyle = BorderStyle.FixedSingle };
             Controls.Add(pathBox);
             var browse = new Button { Text = "浏览…", Location = new Point(556, 207), Width = 90, Height = 30 };
             browse.Click += (s, e) =>
