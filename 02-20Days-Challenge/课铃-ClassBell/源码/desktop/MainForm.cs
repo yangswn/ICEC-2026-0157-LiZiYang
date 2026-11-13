@@ -36,7 +36,10 @@ namespace ClassBell
         private LoginForm loginForm;
         private bool exiting;
         private bool closeToTray = true;
-        private bool firstHideBalloon = true;
+        // 是否已经给用户解释过“点 × 只是隐藏到托盘”（存服务端设置，只弹一次）
+        private bool closeHintShown;
+        // 是否已经弹过托盘气泡（只弹一次）
+        private bool trayHintShown;
         private bool settingsLoaded;
         private bool pollingReminders;
         private int port;
@@ -208,6 +211,7 @@ namespace ClassBell
                 await LoadSettingsOnceAsync();
                 StartTimers();
                 await PollStatusAsync();
+                ShowTrayHintOnce();
             }
             catch (Exception ex)
             {
@@ -425,11 +429,19 @@ namespace ClassBell
         {
             try
             {
-                var state = HostApi.ParseObject(await HostApi.GetJsonAsync("/api/state"));
-                var settings = state.ContainsKey("settings") ? state["settings"] as Dictionary<string, object> : null;
+                var root = HostApi.ParseObject(await HostApi.GetJsonAsync("/api/state"));
+                // 注意层级：/api/state 返回 { state: { settings }, stats, meta }，
+                // settings 在 state 节点里，不在根节点。这里曾经取错，
+                // 导致一次性标记（closeHintShown / trayHintShown）每次都被读成默认值。
+                var stateNode = root.ContainsKey("state") ? root["state"] as Dictionary<string, object> : null;
+                var settings = (stateNode != null && stateNode.ContainsKey("settings"))
+                    ? stateNode["settings"] as Dictionary<string, object>
+                    : null;
                 if (settings != null)
                 {
                     closeToTray = HostApi.Bool(settings, "closeToTray", true);
+                    closeHintShown = HostApi.Bool(settings, "closeHintShown", false);
+                    trayHintShown = HostApi.Bool(settings, "trayHintShown", false);
                     SetAutoLaunch(HostApi.Bool(settings, "autoLaunch", true));
                     autoLaunchItem.Checked = HostApi.Bool(settings, "autoLaunch", true);
                 }
@@ -484,7 +496,12 @@ namespace ClassBell
             {
                 var root = HostApi.ParseObject(await HostApi.GetJsonAsync("/api/state"));
                 var stats = root.ContainsKey("stats") ? root["stats"] as Dictionary<string, object> : null;
-                var settings = root.ContainsKey("settings") ? root["settings"] as Dictionary<string, object> : null;
+                // settings 在 state 节点里（与 LoadSettingsOnceAsync 保持一致），
+                // 这样设置页切换后，几秒内的轮询就能把新值带到宿主。
+                var stateNode = root.ContainsKey("state") ? root["state"] as Dictionary<string, object> : null;
+                var settings = (stateNode != null && stateNode.ContainsKey("settings"))
+                    ? stateNode["settings"] as Dictionary<string, object>
+                    : null;
                 if (stats != null)
                 {
                     int pending = 0;
@@ -495,6 +512,8 @@ namespace ClassBell
                 if (settings != null && settingsLoaded)
                 {
                     closeToTray = HostApi.Bool(settings, "closeToTray", true);
+                    closeHintShown = HostApi.Bool(settings, "closeHintShown", false);
+                    trayHintShown = HostApi.Bool(settings, "trayHintShown", false);
                     autoLaunchItem.Checked = HostApi.Bool(settings, "autoLaunch", true);
                 }
             }
@@ -620,6 +639,12 @@ namespace ClassBell
                         break;
                     case "openPath":
                         OpenPath(Arg(args, 0));
+                        Respond(id, true, null);
+                        break;
+                    // 设置页切换「关闭窗口时最小化到托盘」后，立刻更新宿主行为，
+                    // 不必等 30 秒的状态轮询。
+                    case "applyCloseToTray":
+                        closeToTray = Convert.ToBoolean(args != null && args.Length > 0 ? args[0] : true);
                         Respond(id, true, null);
                         break;
                     case "setAutoLaunch":
@@ -775,14 +800,6 @@ namespace ClassBell
             ShowInTaskbar = false;
             Hide();
             if (tray != null) tray.Visible = true;
-            if (firstHideBalloon && tray != null)
-            {
-                firstHideBalloon = false;
-                tray.BalloonTipTitle = "课铃仍在运行";
-                tray.BalloonTipText = "窗口已隐藏。双击桌面快捷方式，或按 Ctrl+Alt+B 找回。";
-                tray.BalloonTipIcon = ToolTipIcon.Info;
-                tray.ShowBalloonTip(3000);
-            }
         }
 
         private string WindowStateFile
@@ -922,12 +939,57 @@ namespace ClassBell
             catch { }
         }
 
+        /// <summary>
+        /// 托盘图标第一次可用时，用气泡告诉用户“课铃在托盘里”。
+        /// Win11 默认把新图标折叠进溢出区，不提示的话用户根本不知道它还在跑。
+        /// </summary>
+        private void ShowTrayHintOnce()
+        {
+            if (trayHintShown || tray == null) return;
+            trayHintShown = true;
+            try
+            {
+                tray.BalloonTipTitle = "课铃正在托盘运行";
+                tray.BalloonTipText = "点 × 只是隐藏窗口，到点仍会提醒。想彻底退出：右键托盘图标 →「退出课铃」。";
+                tray.BalloonTipIcon = ToolTipIcon.Info;
+                tray.ShowBalloonTip(5000);
+            }
+            catch { }
+            PersistFlag("trayHintShown", true);
+        }
+
+        /// <summary>把一次性标记写回服务端设置（失败不影响使用）。</summary>
+        private async void PersistFlag(string key, bool value)
+        {
+            try
+            {
+                await HostApi.PostJsonAsync("/api/settings", new Dictionary<string, object> { { key, value } });
+            }
+            catch { }
+        }
+
         private void OnFormClosing(object sender, FormClosingEventArgs e)
         {
             SaveWindowState();
             if (!exiting && closeToTray)
             {
                 e.Cancel = true;
+
+                // 第一次点 ×：先解释清楚“为什么还在跑”，并给出真正的退出按钮。
+                // 只弹一次，标记存服务端（WebView2 数据被清也不会重复弹）。
+                if (!closeHintShown)
+                {
+                    closeHintShown = true;
+                    PersistFlag("closeHintShown", true);
+                    bool quit = CloseHintDialog.Ask(this);
+                    if (quit)
+                    {
+                        exiting = true;
+                        Close();
+                        return;
+                    }
+                }
+
                 HideToTray();
                 return;
             }

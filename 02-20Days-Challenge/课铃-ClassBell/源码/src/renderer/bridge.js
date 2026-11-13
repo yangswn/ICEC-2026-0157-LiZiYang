@@ -135,6 +135,10 @@
       if (Object.prototype.hasOwnProperty.call(patch, 'autoLaunch')) {
         host('setAutoLaunch', Boolean(patch.autoLaunch)).catch(() => {});
       }
+      // 关闭行为要立即生效，否则用户切完开关当场点 × 会以为没生效
+      if (Object.prototype.hasOwnProperty.call(patch, 'closeToTray')) {
+        host('applyCloseToTray', Boolean(patch.closeToTray)).catch(() => {});
+      }
       return result;
     },
     chooseLogDir: () => host('chooseFolder'),

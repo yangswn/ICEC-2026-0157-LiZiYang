@@ -288,3 +288,50 @@ test('a fresh recurring task keeps its own day-of-month anchor', () => {
   assert.equal(task.recurrenceDay, 31);
   assert.equal(task.seriesStartAt, '2026-01-31T10:00:00.000Z');
 });
+
+/* ---------------------------------------- 关闭窗口说明（用户反馈：关不掉） */
+
+test('close hint is pending by default and stays dismissed after the first close', () => {
+  const { shouldShowCloseHint } = require('../server/store');
+  const { store } = tempStore();
+
+  // 新用户：还没解释过
+  assert.equal(store.snapshot().settings.closeHintShown, false);
+  assert.equal(shouldShowCloseHint(store.snapshot().settings), true);
+
+  // 第一次点 ×，宿主写回标记
+  store.updateSettings({ closeHintShown: true });
+  assert.equal(shouldShowCloseHint(store.snapshot().settings), false);
+
+  // 重新加载（模拟重启）：标记必须还在，不能第二次又弹
+  store.flush();
+  const reopened = new Store(store.dataDir);
+  assert.equal(reopened.snapshot().settings.closeHintShown, true);
+  assert.equal(shouldShowCloseHint(reopened.snapshot().settings), false);
+});
+
+test('old settings files without closeHintShown still load and default to pending', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campuspulse-store-'));
+  // 模拟 1.2.x 写下的旧数据：settings 里没有 closeHintShown
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({
+    schema: 1,
+    tasks: [],
+    candidates: [],
+    settings: { closeToTray: true, sound: true, reminderOffsets: [60] }
+  }), 'utf8');
+
+  const store = new Store(dir);
+  const settings = store.snapshot().settings;
+  assert.equal(settings.closeToTray, true, '老配置不能丢');
+  assert.equal(settings.closeHintShown, false);
+  assert.equal(require('../server/store').shouldShowCloseHint(settings), true);
+});
+
+test('turning closeToTray off is persisted (点 × 直接退出)', () => {
+  const { store } = tempStore();
+  store.updateSettings({ closeToTray: false });
+  assert.equal(store.snapshot().settings.closeToTray, false);
+  store.flush();
+  const reopened = new Store(store.dataDir);
+  assert.equal(reopened.snapshot().settings.closeToTray, false);
+});

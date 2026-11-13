@@ -63,7 +63,11 @@ function defaultSettings() {
     // localStorage 按源隔离会“丢”，导致字号引导每次启动都弹。
     uiScale: 1.1,
     scaleGuideDone: false,
-    lastPage: 'dashboard'
+    lastPage: 'dashboard',
+    // 关闭窗口的说明只弹一次；存服务端避免 WebView2 数据被清后重复弹
+    closeHintShown: false,
+    // 托盘气泡通知也只弹一次
+    trayHintShown: false
   };
 }
 
@@ -100,6 +104,15 @@ function defaultState() {
 }
 
 const NOTICE_KINDS = new Set(['assignment', 'exam', 'gear', 'notice', 'system']);
+
+/**
+ * 是否还需要向用户解释“× 只是隐藏到托盘”。
+ * 只要 closeHintShown 不是明确的 true，就认为还没解释过。
+ * 老用户没有这个字段 → 返回 true，会补弹一次，属于预期行为。
+ */
+function shouldShowCloseHint(settings) {
+  return !(settings && settings.closeHintShown === true);
+}
 
 function normalizeNotice(input, existing = null) {
   const base = existing || {};
@@ -552,7 +565,8 @@ class Store {
       'autoLaunch', 'closeToTray', 'autoSync', 'autoSyncIntervalMin',
       'autoAddFromChaoxing', 'sound', 'quietHours', 'logMirrorDir',
       'displayName', 'firstRun', 'reminderOffsets',
-      'uiScale', 'scaleGuideDone', 'lastPage'
+      'uiScale', 'scaleGuideDone', 'lastPage',
+      'closeHintShown', 'trayHintShown'
     ];
     const next = { ...this.state.settings };
     for (const key of allowed) {
@@ -1047,6 +1061,7 @@ module.exports = {
   nextOccurrence,
   normalizeOffsets,
   NO_DEADLINE_ISO,
+  shouldShowCloseHint,
   dateOnlyKey,
   cleanText
 };
