@@ -40,6 +40,13 @@ namespace ClassBell
         private bool closeHintShown;
         // 是否已经弹过托盘气泡（只弹一次）
         private bool trayHintShown;
+        // 保持引用，避免 Timer 被 GC 回收后托盘图标不再刷新
+        private System.Windows.Forms.Timer trayPromoteTimer;
+        // 托盘图标对象必须长期持有，否则 GC 后托盘会显示空白或消失
+        private Icon trayIcon;
+        // 轻提示每个会话只弹一次
+        private bool trayToastShown;
+        private System.Windows.Forms.Timer trayKeepAliveTimer;
         private bool settingsLoaded;
         private bool pollingReminders;
         private int port;
@@ -212,6 +219,30 @@ namespace ClassBell
                 StartTimers();
                 await PollStatusAsync();
                 ShowTrayHintOnce();
+                // Explorer 可能要过一会儿才登记托盘项，启动后多试几次
+                trayPromoteTimer = new System.Windows.Forms.Timer { Interval = 4000 };
+                int promoteTries = 0;
+                trayPromoteTimer.Tick += (s2, e2) =>
+                {
+                    PromoteTrayIcon();
+                    promoteTries += 1;
+                    if (promoteTries >= 4) trayPromoteTimer.Stop();
+                };
+                trayPromoteTimer.Start();
+                // Explorer 崩溃/重启会让所有托盘图标消失，定时补回一次。
+                var trayKeepAlive = new System.Windows.Forms.Timer { Interval = 30000 };
+                trayKeepAlive.Tick += (s3, e3) =>
+                {
+                    try
+                    {
+                        if (tray != null && !tray.Visible) tray.Visible = true;
+                        PromoteTrayIcon();
+                    }
+                    catch { }
+                };
+                trayKeepAlive.Start();
+                trayKeepAliveTimer = trayKeepAlive;
+                PromoteTrayIcon();
             }
             catch (Exception ex)
             {
@@ -602,9 +633,12 @@ namespace ClassBell
                         break;
                     case "scanLoginPage":
                         {
+                            // autoOpen = true 只有“用户主动点扫描”才会传；
+                            // 自动扫描必须传 false，否则关掉窗口后每 6 秒又被弹出来。
+                            bool autoOpen = args != null && args.Length > 0 && Convert.ToBoolean(args[0]);
                             if (loginForm == null || loginForm.IsDisposed)
                             {
-                                ShowLogin();
+                                if (autoOpen) ShowLogin();
                                 Respond(id, true, new Dictionary<string, object> { { "needLogin", true } });
                                 break;
                             }
@@ -800,6 +834,21 @@ namespace ClassBell
             ShowInTaskbar = false;
             Hide();
             if (tray != null) tray.Visible = true;
+            PromoteTrayIcon();
+
+            // Win11 可能把图标折叠进 ^，用户看不到就会以为程序被关掉；
+            // 这里给一次确定性反馈（每个会话只弹一次，避免打扰）。
+            if (!trayToastShown)
+            {
+                trayToastShown = true;
+                try
+                {
+                    var toast = new TrayToastForm();
+                    toast.Show();
+                    toast.BringToFront();
+                }
+                catch (Exception ex) { SafeLog("tray toast failed: " + ex.Message); }
+            }
         }
 
         private string WindowStateFile
@@ -857,23 +906,18 @@ namespace ClassBell
 
         private void CreateTray()
         {
+            // 优先用 exe 内嵌图标：不依赖文件、句柄最稳。
             Icon icon = null;
-            try
+            try { icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch { }
+            if (icon == null)
             {
-                using (var source = new Icon(Path.Combine(appDir, "assets", "icon.ico")))
-                {
-                    icon = new Icon(source, 16, 16);
-                }
-            }
-            catch
-            {
-                try
-                {
-                    icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
-                }
-                catch { icon = SystemIcons.Application; }
+                try { icon = new Icon(Path.Combine(appDir, "assets", "icon.ico"), 16, 16); }
+                catch { }
             }
             if (icon == null) icon = SystemIcons.Application;
+            // 存到字段，防止被 GC 回收后托盘图标变空白/消失
+            trayIcon = icon;
             tray = new NotifyIcon();
             tray.Icon = icon;
             tray.Text = "课铃 ClassBell";
@@ -923,6 +967,42 @@ namespace ClassBell
             tray.ContextMenuStrip = menu;
             tray.DoubleClick += (s, e) => ShowMain();
             tray.Click += (s, e) => ShowMain();
+        }
+
+        /// <summary>
+        /// Win11 默认把新出现的托盘图标折叠进“溢出区”，用户会以为程序没在运行。
+        /// 这里把本程序的托盘项标记为 IsPromoted，让它固定显示在托盘区。
+        /// 只写当前用户、只改匹配本 exe 的项；找不到条目时安静跳过。
+        /// </summary>
+        private void PromoteTrayIcon()
+        {
+            try
+            {
+                string exe = Application.ExecutablePath;
+                string keyPath = @"Control Panel\NotifyIconSettings";
+                using (var root = Registry.CurrentUser.OpenSubKey(keyPath, true))
+                {
+                    if (root == null) return;
+                    foreach (string sub in root.GetSubKeyNames())
+                    {
+                        try
+                        {
+                            using (var item = root.OpenSubKey(sub, true))
+                            {
+                                if (item == null) continue;
+                                string path = item.GetValue("ExecutablePath") as string;
+                                string tip = item.GetValue("InitialTooltip") as string;
+                                bool mine = (!string.IsNullOrEmpty(path) && string.Equals(path, exe, StringComparison.OrdinalIgnoreCase))
+                                         || (!string.IsNullOrEmpty(tip) && tip.Contains("课铃"));
+                                if (!mine) continue;
+                                item.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
         }
 
         private void SetAutoLaunch(bool enabled)

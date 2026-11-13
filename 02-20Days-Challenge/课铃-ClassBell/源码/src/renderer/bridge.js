@@ -187,7 +187,8 @@
     updateMistake: (id, patch) => request('PATCH', `/api/mistakes/${encodeURIComponent(id)}`, patch),
     deleteMistake: (id) => request('DELETE', `/api/mistakes/${encodeURIComponent(id)}`),
     extractMistakes: () => request('POST', '/api/mistakes/extract', {}),
-    scanLoginPage: () => host('scanLoginPage'),
+    // autoOpen=true 仅用于用户主动点击；自动扫描一律 false
+    scanLoginPage: (autoOpen) => host('scanLoginPage', Boolean(autoOpen)),
     importMistakesFromPage: (page) => request('POST', '/api/mistakes/import-text', page),
 
     testReminder: () => host('testReminder'),

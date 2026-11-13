@@ -27,7 +27,7 @@ namespace ClassBell
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = false;
-            ClientSize = new Size(430, 232);
+            ClientSize = new Size(446, 268);
             BackColor = Color.FromArgb(247, 244, 236);
             Font = new Font("Microsoft YaHei UI", 9F);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -45,10 +45,11 @@ namespace ClassBell
             {
                 Text = "这样到点才能提醒你。\r\n\r\n"
                      + "想完全退出：点下面「立即退出」，\r\n"
-                     + "或右键托盘图标 →「退出课铃」。",
+                     + "或右键托盘图标 →「退出课铃」（图标可能折叠在右下角的 ^ 里）。\r\n\r\n"
+                     + "之后按 Ctrl+Alt+B 可以随时找回窗口。",
                 ForeColor = Color.FromArgb(90, 100, 92),
                 AutoSize = false,
-                Bounds = new Rectangle(24, 58, 382, 92)
+                Bounds = new Rectangle(24, 58, 398, 118)
             };
 
             var hint = new Label
@@ -57,14 +58,14 @@ namespace ClassBell
                 ForeColor = Color.FromArgb(130, 138, 128),
                 Font = new Font("Microsoft YaHei UI", 8F),
                 AutoSize = false,
-                Bounds = new Rectangle(24, 150, 382, 22)
+                Bounds = new Rectangle(24, 182, 398, 22)
             };
 
             var keep = new Button
             {
                 Text = "知道了，继续用",
                 DialogResult = DialogResult.OK,
-                Bounds = new Rectangle(150, 182, 130, 34),
+                Bounds = new Rectangle(150, 216, 130, 34),
                 BackColor = Color.FromArgb(46, 74, 58),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -75,7 +76,7 @@ namespace ClassBell
             {
                 Text = "立即退出",
                 DialogResult = DialogResult.Cancel,
-                Bounds = new Rectangle(290, 182, 116, 34),
+                Bounds = new Rectangle(290, 216, 116, 34),
                 BackColor = Color.FromArgb(196, 85, 67),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
