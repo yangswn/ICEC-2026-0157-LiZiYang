@@ -5,14 +5,14 @@
 
 **最值得看的一个 —— 阶段二我写了一个桌面程序：课铃 ClassBell。**
 
-常驻系统托盘，从学习通里把没交的作业抓出来、到点提醒。现在是 **1.3.9 版、22 次迭代、6 位真机用户、14 条反馈**。
+常驻系统托盘，从学习通里把没交的作业抓出来、到点提醒。现在是 **1.5.0 版、25 次迭代、6 位真机用户、14 条反馈**。
 其中 3 位同学一开始**装都装不上**，查到根因、两次迭代之后，**0/3 → 3/3 全部能用**。
 还有 1 位同学读了源码，挑出 3 个真 bug，全修了并补了回归测试。
 
 **直接下载试用**（Windows 10/11 64 位，不需要另装运行库）：
 
-- 安装版 33.9 MB：**[ClassBell-Setup-1.3.9.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.9/ClassBell-Setup-1.3.9.exe)**
-- 免安装版 32.7 MB（解压即用）：**[ClassBell-Portable-1.3.9.zip](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.9/ClassBell-Portable-1.3.9.zip)**
+- 安装版 33.9 MB：**[ClassBell-Setup-1.5.0.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.5.0/ClassBell-Setup-1.5.0.exe)**
+- 免安装版 32.8 MB（解压即用）：**[ClassBell-Portable-1.5.0.zip](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.5.0/ClassBell-Portable-1.5.0.zip)**
 
 > 浏览器可能提示「通常不会下载」—— 没有代码签名证书、文件又是新发布的，点「…」→「保留」即可，不是病毒。
 
@@ -89,7 +89,7 @@
 | 目录 | 我放什么 | 进度 |
 |---|---|---|
 | `01-Field-Discovery/` | 阶段一：我的实地报告、现场照片、`raw_data/` 原始数据 | **✅ 阶段一已完成** |
-| `02-20Days-Challenge/` | 阶段二：20 天挑战的项目资料 | 🟡 **进行中**：**课铃 ClassBell**（1.3.9，22 次迭代，6 位用户 14 条反馈，4/7 天日志）· 项目五（拆解逆向 + 爆炸图 + BOM）· 水墨屏低功耗终端（SWD 未通）|
+| `02-20Days-Challenge/` | 阶段二：20 天挑战的项目资料 | 🟡 **进行中**：**课铃 ClassBell**（1.5.0，25 次迭代，6 位用户 14 条反馈，5/7 天日志）· 项目五（拆解逆向 + 爆炸图 + BOM）· 水墨屏低功耗终端（SWD 未通）|
 | `03-AI-Collaboration/` | 我提问 AI 和排障的对话记录 | **🟡 已 2 篇**：Git 推送排障（10-12）、一条被记错的"已完成"（11-05） |
 
 > 说明：每个目录里都有一个 `.gitkeep` 空文件，它是我放的「占位」文件。
