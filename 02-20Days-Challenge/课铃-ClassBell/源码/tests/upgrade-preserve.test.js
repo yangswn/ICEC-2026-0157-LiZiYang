@@ -23,12 +23,18 @@ const path = require('node:path');
 const repoRoot = path.join(__dirname, '..');
 const setupSource = fs.readFileSync(path.join(repoRoot, 'installer', 'Setup.cs'), 'utf8');
 
-test('installer backs up user data before uninstalling', () => {
-  // 备份发生在卸载之前：UpgradeFromPrevious 里先 PreserveUserData，再 UninstallPrevious
-  const preserveAt = setupSource.indexOf('string preserved = PreserveUserData(dir);');
-  const uninstallAt = setupSource.indexOf('UninstallPrevious(dir);', preserveAt);
-  assert.ok(preserveAt > 0, '缺少“安装前备份用户数据”的调用');
-  assert.ok(uninstallAt > preserveAt, '备份必须在卸载之前完成');
+test('installer backs up user data before overwriting files', () => {
+  // 1) 备份能力存在于 PrepareOverwrite 内部
+  const prepareDefAt = setupSource.indexOf('private static string PrepareOverwrite');
+  const prepareBlock = setupSource.slice(prepareDefAt, prepareDefAt + 1800);
+  assert.ok(prepareBlock.includes('return PreserveUserData(dir);'), 'PrepareOverwrite 必须调用备份');
+
+  // 2) 运行顺序：InstallCore 内先 PrepareOverwrite，再解压覆盖
+  const installAt = setupSource.indexOf('internal static void InstallCore');
+  const prepareCallAt = setupSource.indexOf('PrepareOverwrite(dir, progress)', installAt);
+  const extractCallAt = setupSource.indexOf('ExtractFileWithRetry(entry, target);', installAt);
+  assert.ok(prepareCallAt > installAt, 'InstallCore 必须先做备份准备');
+  assert.ok(extractCallAt > prepareCallAt, '备份必须在解压覆盖之前完成');
 });
 
 test('backup is verified and aborts installation on mismatch', () => {
@@ -54,7 +60,7 @@ test('logs and cookies are part of the preserved set', () => {
 
 test('restore runs after extraction and keeps the backup for recovery', () => {
   const restoreCallAt = setupSource.indexOf('RestoreUserData(dir, preservedData)');
-  const extractAt = setupSource.indexOf('entry.ExtractToFile');
+  const extractAt = setupSource.indexOf('ExtractFileWithRetry(entry, target);');
   assert.ok(restoreCallAt > extractAt, '恢复必须在解压之后');
 
   // 不再“装完就删备份”，而是滚动保留最近 2 份

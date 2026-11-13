@@ -15,7 +15,7 @@ namespace ClassBell.Setup
     internal static class Program
     {
         internal const string AppName = "课铃 ClassBell";
-        internal const string Version = "1.4.3";
+        internal const string Version = "1.5.0";
         internal const string Publisher = "ClassBell";
         internal const string ExeName = "ClassBell.exe";
         internal const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassBell";
@@ -192,8 +192,8 @@ namespace ClassBell.Setup
             {
                 throw new Exception("课铃仍在运行，已取消安装。请退出课铃后重试。");
             }
-            // 先卸旧版：避免旧文件/快捷方式/注册表残留，也避免新旧文件混在一起
-            string preservedData = UpgradeFromPrevious(dir, progress);
+            // 覆盖安装：只做版本检查 + 备份关键数据，不调用旧卸载器、不删目录
+            string preservedData = PrepareOverwrite(dir, progress);
 
             string webviewNote;
             EnsureWebView2(progress, out webviewNote);
@@ -225,7 +225,7 @@ namespace ClassBell.Setup
                         else
                         {
                             Directory.CreateDirectory(Path.GetDirectoryName(target));
-                            entry.ExtractToFile(target, true);
+                            ExtractFileWithRetry(entry, target);
                         }
                         if (progress != null) progress.Report(Math.Min(99, index * 100 / Math.Max(1, total)));
                     }
@@ -239,7 +239,7 @@ namespace ClassBell.Setup
             string exe = Path.Combine(dir, ExeName);
             if (!File.Exists(exe)) throw new Exception("安装包解压后缺少 ClassBell.exe。");
 
-            // 便携版数据在安装目录里，卸载时会被清掉，这里恢复回来
+            // 覆盖安装不删目录，data\ 本来还在；这里只补“确实缺失”的文件
             RestoreUserData(dir, preservedData);
 
             try
@@ -470,44 +470,6 @@ namespace ClassBell.Setup
             return null;
         }
 
-        /// <summary>
-        /// 卸载旧版本：只传 /S（静默，默认保留 %APPDATA%\ClassBell）与 /KEEPDIR（不删目录，
-        /// 避免卸载器延迟 rmdir 删掉安装器稍后解压的文件）。
-        /// </summary>
-        private static bool UninstallPrevious(string dir)
-        {
-            string uninstaller = Path.Combine(dir, "Uninstall.exe");
-            if (!File.Exists(uninstaller)) return false;
-
-            TryLog("uninstalling previous version from " + dir);
-            try
-            {
-                var info = new ProcessStartInfo
-                {
-                    FileName = uninstaller,
-                    Arguments = "/S /KEEPDIR",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = dir
-                };
-                using (var process = Process.Start(info))
-                {
-                    if (process == null) return false;
-                    if (!process.WaitForExit(60000))
-                    {
-                        TryLog("uninstaller timeout, killing");
-                        try { process.Kill(); } catch { }
-                        try { process.WaitForExit(5000); } catch { }
-                    }
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                TryLog("uninstall previous failed: " + ex.Message);
-                return false;
-            }
-        }
 
         /* ------------------------------------------------- 用户数据保全 */
 
@@ -671,6 +633,50 @@ namespace ClassBell.Setup
             catch { }
         }
 
+        /// <summary>
+        /// 覆盖单个文件，带三层保护：
+        ///  1. 目标是只读（旧版安装器可能留下只读文件）→ 先清掉只读属性；
+        ///  2. 覆盖失败通常是对面句柄还没释放 → 等 300ms 重试，最多 5 次；
+        ///  3. 仍失败 → 抛异常中止安装并报出具体文件，避免留下“装了一半”的状态。
+        /// </summary>
+        private static void ExtractFileWithRetry(ZipArchiveEntry entry, string target)
+        {
+            if (File.Exists(target))
+            {
+                try
+                {
+                    FileAttributes attributes = File.GetAttributes(target);
+                    if ((attributes & FileAttributes.ReadOnly) != 0)
+                    {
+                        File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+                        TryLog("cleared read-only: " + target);
+                    }
+                }
+                catch { }
+            }
+
+            int attempt = 0;
+            while (true)
+            {
+                try
+                {
+                    entry.ExtractToFile(target, true);
+                    return;
+                }
+                catch (IOException ex)
+                {
+                    attempt += 1;
+                    if (attempt >= 5)
+                    {
+                        TryLog("extract failed after " + attempt + " attempts: " + target + " (" + ex.Message + ")");
+                        throw new Exception("无法覆盖文件（可能仍被占用）：\r\n" + target
+                            + "\r\n\r\n请确认课铃已完全退出后重试安装。");
+                    }
+                    Thread.Sleep(300);
+                }
+            }
+        }
+
         private static void CopyTree(string from, string to)
         {
             Directory.CreateDirectory(to);
@@ -685,52 +691,43 @@ namespace ClassBell.Setup
         }
 
         /// <summary>
-        /// 已装旧版本且版本更低时：备份用户数据（校验通过才继续）→ 跑卸载器 →
-        /// 等延迟删除落空。任何备份失败都会抛出，安装随之中止，不会删数据。
+        /// 覆盖安装的准备工作：版本检查 + 备份关键数据。
+        ///
+        /// 这里**不再调用旧版 Uninstall.exe**：
+        ///  - 旧卸载器不认识参数，会整目录删除并排一个 "timeout 2 & rmdir /s /q" 的延迟删除；
+        ///  - 那个延迟删除会与安装器的解压撞车，把刚装好的文件连同 data\ 一起删掉
+        ///    （2026-11-13 真实事故）；
+        ///  - 卸载与重装之间还有空窗，中途失败就是“软件没了”。
+        ///
+        /// 标准做法（Inno / NSIS / MSI 升级）都是直接覆盖：不动目录、不跑卸载器。
+        /// 旧版本多出来的文件即使残留也无害（同名文件会被覆盖）。
+        ///
+        /// 返回备份目录（没有需要备份的数据时返回 null）。
         /// </summary>
-        private static string UpgradeFromPrevious(string dir, IProgress<int> progress)
+        private static string PrepareOverwrite(string dir, IProgress<int> progress)
         {
             System.Version installed = ReadInstalledVersion(dir);
-            if (installed == null) return null;
-
             System.Version current;
-            if (!System.Version.TryParse(Program.Version, out current)) return null;
-            if (installed >= current)
+            bool hasCurrent = System.Version.TryParse(Program.Version, out current);
+
+            // 版本检查：同版本或更高版本已装 → 不需要额外动作，直接覆盖即可
+            if (installed != null && hasCurrent && installed >= current)
             {
-                TryLog("installed " + installed + " >= current " + current + ", skip uninstall");
-                return null;
+                TryLog("installed " + installed + " >= current " + current + ", overwrite in place");
+            }
+            else if (installed != null)
+            {
+                TryLog("upgrading from " + installed + " to " + current + " by overwrite");
+            }
+            else
+            {
+                TryLog("fresh install (no previous version detected)");
             }
 
             if (progress != null) progress.Report(1);
-            string preserved = PreserveUserData(dir);
-            UninstallPrevious(dir);
-
-            // 旧版卸载器会安排 "timeout 2 & rmdir /s /q <dir>"。
-            // 必须把这个延迟删除等过去，否则它会把我们刚解压的文件删掉。
-            WaitForDirectoryRemoved(dir, 20000);
-            Thread.Sleep(2500);
-            return preserved;
+            return PreserveUserData(dir);
         }
 
-        /// <summary>
-        /// 主动删掉安装目录并轮询到“确实不存在”。
-        /// 旧版卸载器排的延迟 rmdir 会在这段时间里落空，从而不会误删新文件。
-        /// </summary>
-        private static void WaitForDirectoryRemoved(string dir, int timeoutMs)
-        {
-            var started = Environment.TickCount;
-            while (Environment.TickCount - started < timeoutMs)
-            {
-                try
-                {
-                    if (Directory.Exists(dir)) Directory.Delete(dir, true);
-                }
-                catch { }
-                if (!Directory.Exists(dir)) return;
-                Thread.Sleep(400);
-            }
-            TryLog("install dir still present after wait: " + dir);
-        }
 
         internal static Stream FindResource(string suffix)
         {
