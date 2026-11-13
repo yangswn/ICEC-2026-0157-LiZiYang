@@ -9,8 +9,12 @@
 其中 3 位同学一开始**装都装不上**，查到根因、两次迭代之后，**0/3 → 3/3 全部能用**。
 还有 1 位同学读了源码，挑出 3 个真 bug，全修了并补了回归测试。
 
-**直接下载试用**（33.9 MB，Windows 10/11 64 位，双击安装、不需要另装运行库）：
-**[ClassBell-Setup-1.3.8.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.8/ClassBell-Setup-1.3.8.exe)**
+**直接下载试用**（Windows 10/11 64 位，不需要另装运行库）：
+
+- 安装版 33.9 MB：**[ClassBell-Setup-1.3.8.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.8/ClassBell-Setup-1.3.8.exe)**
+- 免安装版 32.7 MB（解压即用）：**[ClassBell-Portable-1.3.8.zip](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.8/ClassBell-Portable-1.3.8.zip)**
+
+> 浏览器可能提示「通常不会下载」—— 没有代码签名证书、文件又是新发布的，点「…」→「保留」即可，不是病毒。
 
 → 源码、日志、用户反馈与每条反馈的处理结果：**[`02-20Days-Challenge/课铃-ClassBell/`](02-20Days-Challenge/课铃-ClassBell/README.md)**
 

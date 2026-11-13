@@ -3,10 +3,17 @@
 > 项目四原文要求：**「针对校园痛点的轻量程序与运行日志」**
 > 我的切入点：学习通的作业分散在课程里，容易漏；做一个常驻托盘的桌面提醒工具。
 
-**直接下载试用** —— 33.9 MB，Windows 10/11 64 位，双击安装、一路下一步，**不需要提前装任何运行库**
-（安装器会自动检测并静默安装 WebView2）：
+**直接下载试用**（Windows 10/11 64 位，**不需要提前装任何运行库**，安装器会自动检测并静默安装 WebView2）：
 
-→ <https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.8/ClassBell-Setup-1.3.8.exe>
+| 方式 | 下载 | 说明 |
+|---|---|---|
+| **安装版**（推荐） | [ClassBell-Setup-1.3.8.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.8/ClassBell-Setup-1.3.8.exe) · 33.9 MB | 双击安装、一路下一步，自动建快捷方式 |
+| **免安装版** | [ClassBell-Portable-1.3.8.zip](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.3.8/ClassBell-Portable-1.3.8.zip) · 32.7 MB | 解压即用、不写注册表；**zip 下载不会被浏览器拦** |
+
+> ⚠️ **下载时 Edge / Chrome 可能提示「通常不会下载 ClassBell-Setup-1.3.8.exe」** —— 点右侧「…」→「保留」即可。
+> 原因有两个：**没有购买代码签名证书**；文件刚发布、下载量低，微软的信誉系统还不认识它。**不是病毒。**
+> 安装时若弹「未知发布者」，点「更多信息 → 仍要运行」。
+> **不想走这两步的话，直接用免安装版 zip** —— 浏览器不会拦 zip，解压双击 `ClassBell.exe` 就能用。
 
 ![课铃主界面](源码/docs/screenshots/dashboard.png)
 
