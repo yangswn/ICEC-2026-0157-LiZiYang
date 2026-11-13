@@ -33,6 +33,8 @@ const telemetry = new Telemetry({
 const chaoxing = new ChaoxingService({ telemetry });
 const clients = new Set();
 let syncPromise = null;
+// 详情补全进度（null = 没在补全）；通过 state 广播推给界面
+let detailProgress = null;
 let reminderQueue = [];
 let reminderDropped = 0;
 let snoozes = [];
@@ -67,7 +69,8 @@ function statePayload() {
       platform: process.platform,
       arch: process.arch,
       loginUrl: LOGIN_URL,
-      homeUrl: HOME_URL
+      homeUrl: HOME_URL,
+      detailProgress
     }
   };
 }
@@ -212,6 +215,58 @@ function syncMetaFor(auth, result, merge, error) {
   };
 }
 
+/**
+ * 同步之后的详情补全：把缺截止时间的作业逐个打开详情页，补上
+ * 「截止时间」与「题目数量」。
+ *
+ * 任何异常都在这里吞掉并记日志 —— 补全失败不能影响已经同步好的数据。
+ */
+async function enrichDetailsAfterSync() {
+  const candidates = store.state.tasks.filter((t) => t
+    && t.status === 'pending'
+    && (t.noDeadline || !t.dueAt)
+    && !t.dueAtManual
+    && !t.detailFetchedAt
+    && t.sourceUrl);
+  if (!candidates.length) return null;
+
+  detailProgress = { done: 0, total: Math.min(40, candidates.length) };
+  broadcastState();
+
+  try {
+    const { stats, results } = await chaoxing.enrichTaskDetails(candidates, {
+      limit: 40,
+      onProgress: ({ done: d, total }) => {
+        detailProgress = { done: d, total };
+        broadcastState();
+      }
+    });
+
+    let applied = 0;
+    for (const item of results) {
+      try {
+        const updated = store.applyDetailEnrichment(item.id, {
+          dueAt: item.patch.dueAt || null,
+          questionCount: item.patch.questionCount || null,
+          fetchedAt: item.patch.detailFetchedAt || null
+        });
+        if (updated) applied += 1;
+      } catch (error) {
+        log('detail_apply_error', { ok: false, error, meta: { taskId: item.id } });
+      }
+    }
+
+    log('detail_enrichment_applied', { meta: { ...stats, applied } });
+    return { ...stats, applied };
+  } catch (error) {
+    log('detail_enrichment_failed', { ok: false, error });
+    return null;
+  } finally {
+    detailProgress = null;
+    broadcastState();
+  }
+}
+
 function runSync({ auto = false } = {}) {
   if (syncPromise) return syncPromise;
   const started = Date.now();
@@ -229,7 +284,10 @@ function runSync({ auto = false } = {}) {
       merge = store.mergeRemote(result.tasks || [], {
         autoAdd: Boolean(store.state.settings.autoAddFromChaoxing)
       });
+      // 先让界面看到同步结果，再慢慢补全（补全失败也不影响这一次同步）
       store.setSyncMeta(syncMetaFor(result.auth, result, merge, null));
+      broadcastState();
+      const detail = await enrichDetailsAfterSync();
       log('sync_merge', {
         durationMs: Date.now() - started,
         meta: {
@@ -239,7 +297,14 @@ function runSync({ auto = false } = {}) {
         }
       });
       broadcastState();
-      return { ok: true, result, merge, message: `识别 ${result.tasks.length} 项，新增 ${merge.added} 项${merge.missed ? `，错过 ${merge.missed} 项` : ''}` };
+      const detailNote = detail && detail.dueFilled ? `，补全截止时间 ${detail.dueFilled} 项` : '';
+      return {
+        ok: true,
+        result,
+        merge,
+        detail,
+        message: `识别 ${result.tasks.length} 项，新增 ${merge.added} 项${merge.missed ? `，错过 ${merge.missed} 项` : ''}${detailNote}`
+      };
     } catch (error) {
       const auth = result ? result.auth : null;
       store.setSyncMeta(syncMetaFor(auth, null, null, error));
@@ -353,7 +418,8 @@ async function handleApi(req, res) {
   if (taskMatch) {
     const id = decodeURIComponent(taskMatch[1]);
     if (method === 'PATCH' || method === 'PUT') {
-      const task = store.updateTask(id, await readJson(req));
+      // manual=true：用户手工改期要打 dueAtManual，之后同步/补全都不许覆盖
+      const task = store.updateTask(id, await readJson(req), { manual: true });
       log('task_updated', { meta: { category: task.category, status: task.status } });
       broadcastState();
       scheduler.check();

@@ -163,6 +163,85 @@ function parseTaskFeed(body) {
   return dedupe(out);
 }
 
+/**
+ * 从作业详情页（mooc1.chaoxing.com/work/phone/task-work）解析：
+ *   - 截止时间：未提交的作业会渲染 .tmTimeNew 区块
+ *       <span aria-label="截止时间11月20日23时59分00秒">
+ *       <h4 aria-hidden="true">截止时间：11-20 23:59</h4>
+ *     已提交/已批改的作业只显示成绩卡，页面上没有“截止”字样。
+ *   - 题目数量：
+ *       未提交页：共包含30道题目，其中单选题14道，判断题16道。
+ *       成绩页：  共18题，客观题18道，主观题0道
+ *
+ * 时间按本机时区构造（学习通下发的是北京时间），返回值统一 ISO。
+ * @param {string} html 详情页 HTML
+ * @param {Date} [now] 用于补年份/处理跨年
+ */
+function parseWorkDetail(html, now = new Date()) {
+  const raw = String(html || '');
+  const result = {
+    dueAt: null,
+    questionCount: null,
+    hasDeadlineLabel: /截止/.test(raw),
+    hasCountLabel: /共包含\s*\d+\s*道题目|共\s*\d+\s*题/.test(raw),
+    matchedDeadline: '',
+    matchedCount: ''
+  };
+
+  const buildDate = (month, day, hour, minute) => {
+    const m = Number(month);
+    const d = Number(day);
+    const h = Number(hour);
+    const mi = Number(minute);
+    if (!(m >= 1 && m <= 12) || !(d >= 1 && d <= 31) || !(h >= 0 && h <= 23) || !(mi >= 0 && mi <= 59)) {
+      return null;
+    }
+    let year = now.getFullYear();
+    const candidate = new Date(year, m - 1, d, h, mi, 0, 0);
+    // 跨年：例如现在是 12 月，作业截止 1 月 → 属于下一年
+    if (candidate.getTime() < now.getTime() - 180 * 24 * 3600 * 1000) {
+      year += 1;
+    }
+    return new Date(year, m - 1, d, h, mi, 0, 0);
+  };
+
+  // 1) 完整日期（带年月日时分）
+  const full = /aria-label="截止时间(\d{1,2})月(\d{1,2})日(\d{1,2})时(\d{1,2})分/.exec(raw);
+  if (full) {
+    const date = buildDate(full[1], full[2], full[3], full[4]);
+    if (date) {
+      result.dueAt = date.toISOString();
+      result.matchedDeadline = full[0];
+    }
+  }
+
+  // 2) 退化：截止时间：11-20 23:59
+  if (!result.dueAt) {
+    const short = /截止时间[：:]\s*(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})/.exec(raw);
+    if (short) {
+      const date = buildDate(short[1], short[2], short[3], short[4]);
+      if (date) {
+        result.dueAt = date.toISOString();
+        result.matchedDeadline = short[0];
+      }
+    }
+  }
+
+  // 3) 题量：优先“共包含N道题目”，其次“共N题”
+  const countFull = /共包含\s*(\d{1,4})\s*道题目/.exec(raw);
+  const countShort = /共\s*(\d{1,4})\s*题[，,、\s]/.exec(raw);
+  const countMatch = countFull || countShort;
+  if (countMatch) {
+    const n = Number(countMatch[1]);
+    if (Number.isFinite(n) && n > 0 && n <= 9999) {
+      result.questionCount = n;
+      result.matchedCount = countMatch[0];
+    }
+  }
+
+  return result;
+}
+
 function parseBackClazz(body) {
   const root = typeof body === 'string' ? JSON.parse(body) : body;
   if (!root || Number(root.result) !== 1 || !Array.isArray(root.channelList)) return [];
@@ -239,6 +318,9 @@ function parseWorkListHtml(html, base = 'https://mooc1.chaoxing.com') {
     if (!title) continue;
     const detail = innerTag(inner, 'p');
     const statusText = innerTag(inner, 'b');
+    // 平台在 <dt> 上给了状态：1=未做 2=已过期（未提交） 4=已批改/已提交。
+    // 已批改行只显示分数、没有 <b> 文案，仅按文案判断会误判成“未提交”。
+    const statusAttr = String(attr(tag, 'status') || '').trim();
     const due = /截止|结束|提交截止|有效期/.test(`${detail} ${statusText}`)
       ? extractDeadline(`${detail} ${statusText}`)
       : null;
@@ -249,11 +331,16 @@ function parseWorkListHtml(html, base = 'https://mooc1.chaoxing.com') {
       course: '',
       type: 'work',
       dueAt: due ? due.toISOString() : null,
-      remoteStatus: isCompletedStatus(statusText) ? 1 : 0,
-      closed: isClosedStatus(statusText),
+      remoteStatus: statusAttr
+        ? (statusAttr === '4' ? 1 : 0)
+        : (isCompletedStatus(statusText) ? 1 : 0),
+      closed: statusAttr
+        ? statusAttr === '2'
+        : isClosedStatus(statusText),
       sourceUrl: absoluteUrl(base, data),
       statusText,
-      detail
+      detail,
+      statusAttr
     });
   }
   return dedupe(out);
@@ -569,6 +656,7 @@ module.exports = {
   parseWorkListHtml,
   parseExamListHtml,
   parsePageRows,
+  parseWorkDetail,
   dedupe,
   stripTags,
   decodeEntities,

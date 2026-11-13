@@ -11,7 +11,8 @@ const {
   dedupe,
   parseNoticeFeed,
   parseNoticeHtml,
-  parseMistakeHtml
+  parseMistakeHtml,
+  parseWorkDetail
 } = require('./chaoxing-parser');
 
 const LOGIN_URL = 'https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com';
@@ -198,6 +199,159 @@ class ChaoxingService {
     });
     await Promise.all(workers);
     return dedupe(out);
+  }
+
+  /**
+   * 从作业详情页补全「截止时间」与「题目数量」。
+   *
+   * 只处理需要补的：待完成 + 没有真实截止时间 + 有详情页 URL +
+   * 没被补过（detailFetchedAt 为空）+ 用户没手工改过（dueAtManual）。
+   *
+   * 限速：最多 2 并发、请求间隔 800~1200ms、单条 10s 超时、一轮最多 40 条。
+   * 降级：任何一条失败都不影响其它条，也不抛给调用方；
+   *       抓取失败不写 detailFetchedAt（下次还会重试）。
+   *
+   * @param {Array<object>} tasks store 里的任务（只读，不改）
+   * @param {{limit?:number, onProgress?:Function, now?:Date, fetchImpl?:Function}} [options]
+   * @returns {Promise<{stats:object, results:Array<{id:string,patch:object,parsed:object}>}>}
+   */
+  async enrichTaskDetails(tasks, options = {}) {
+    const {
+      limit = 40,
+      concurrency = 2,
+      gapMs = 900,
+      timeoutMs = 10000,
+      onProgress = null,
+      now = new Date()
+    } = options;
+
+    const targets = (Array.isArray(tasks) ? tasks : [])
+      .filter((t) => t
+        && t.status === 'pending'
+        && (t.noDeadline || !t.dueAt)
+        && !t.dueAtManual
+        && !t.detailFetchedAt
+        && typeof t.sourceUrl === 'string'
+        && /^https?:\/\//i.test(t.sourceUrl))
+      .slice(0, limit);
+
+    const stats = {
+      checked: targets.length,
+      requests: 0,
+      dueFilled: 0,
+      countFilled: 0,
+      parseMiss: 0,
+      noDeadline: 0,
+      failed: 0
+    };
+    if (!targets.length) return { stats, results: [] };
+
+    const started = Date.now();
+    const results = [];
+    let cursor = 0;
+    let doneCount = 0;
+    let lastStart = 0;
+
+    // 800~1200ms 抖动，避免固定节奏
+    const nextGap = () => gapMs + Math.floor(Math.random() * 300);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // 抢占“起跑窗口”：两个 worker 必须排队，否则会同时发出请求，
+    // 间隔限速就失效了。
+    let gate = Promise.resolve();
+    const reserveSlot = () => {
+      const run = async () => {
+        const wait = lastStart + nextGap() - Date.now();
+        if (wait > 0) await sleep(wait);
+        lastStart = Date.now();
+      };
+      const next = gate.then(run, run);
+      gate = next.then(() => {}, () => {});
+      return next;
+    };
+
+    const report = () => {
+      if (typeof onProgress === 'function') {
+        try { onProgress({ done: doneCount, total: targets.length }); } catch (_) { /* 进度回调不许影响抓取 */ }
+      }
+    };
+
+    const worker = async () => {
+      while (cursor < targets.length) {
+        const task = targets[cursor];
+        cursor += 1;
+
+        await reserveSlot();
+        stats.requests += 1;
+
+        let parsed = null;
+        try {
+          const res = await this._fetch(task.sourceUrl, { timeout: timeoutMs });
+          parsed = parseWorkDetail(res.text, now);
+        } catch (error) {
+          // 抓取失败：不写 detailFetchedAt，下次同步继续试
+          stats.failed += 1;
+          this.telemetry.log('detail_fetch_error', {
+            ok: false,
+            error,
+            meta: { taskId: task.id, code: (error && error.code) || 'ERROR' }
+          });
+          doneCount += 1;
+          report();
+          continue;
+        }
+
+        const patch = { detailFetchedAt: now.toISOString() };
+        if (parsed.dueAt) {
+          patch.dueAt = parsed.dueAt;
+          patch.noDeadline = false;
+          stats.dueFilled += 1;
+        }
+        if (parsed.questionCount) {
+          patch.questionCount = parsed.questionCount;
+          stats.countFilled += 1;
+        }
+
+        if (!parsed.dueAt) {
+          if (parsed.hasDeadlineLabel) {
+            // 页面上有“截止”字样却解析不出来 → 结构可能变了，记一条
+            stats.parseMiss += 1;
+            this.telemetry.log('detail_parse_miss', {
+              ok: false,
+              meta: { taskId: task.id, hasCount: parsed.hasCountLabel }
+            });
+          } else {
+            // 已提交/已批改的作业页本来就没有截止时间：正常情况，不算异常
+            stats.noDeadline += 1;
+            this.telemetry.log('detail_no_deadline', {
+              meta: { taskId: task.id, count: parsed.questionCount }
+            });
+          }
+        }
+
+        results.push({ id: task.id, patch, parsed });
+        doneCount += 1;
+        report();
+      }
+    };
+
+    const workers = Array.from({ length: Math.max(1, Math.min(concurrency, targets.length)) }, worker);
+    await Promise.all(workers);
+
+    this.telemetry.log('detail_enrichment', {
+      durationMs: Date.now() - started,
+      meta: {
+        checked: stats.checked,
+        requests: stats.requests,
+        dueFilled: stats.dueFilled,
+        countFilled: stats.countFilled,
+        parseMiss: stats.parseMiss,
+        noDeadline: stats.noDeadline,
+        failed: stats.failed
+      }
+    });
+
+    return { stats, results };
   }
 
   /**

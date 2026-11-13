@@ -413,7 +413,14 @@ function renderTitlebar() {
   box.classList.remove('online', 'busy', 'error');
   if (App.syncInFlight) {
     box.classList.add('busy');
-    text.textContent = '正在同步学习通…';
+    const progress = App.meta && App.meta.detailProgress;
+    // 同步完之后还要逐条打开作业详情页补截止时间，这里要让人看见进度，
+    // 否则 28 条 × 1 秒会像卡死。
+    if (progress && progress.total) {
+      text.textContent = `正在补全时间 ${Math.min(progress.done, progress.total)}/${progress.total}`;
+    } else {
+      text.textContent = '正在同步学习通…';
+    }
     return;
   }
   const sync = App.state.sync || {};

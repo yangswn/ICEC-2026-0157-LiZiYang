@@ -9,3 +9,4 @@ require('./telemetry.test.js');
 require('./single-instance.test.js');
 require('./upgrade-preserve.test.js');
 require('./overwrite-install.test.js');
+require('./detail-enrichment.test.js');

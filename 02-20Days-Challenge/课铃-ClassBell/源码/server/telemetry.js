@@ -11,7 +11,8 @@ const DEGRADED_EVENTS = new Set([
   'task_feed_error',
   'task_feed_error_waf',
   'course_list_error',
-  'course_tasks_error'
+  'course_tasks_error',
+  'detail_no_deadline'
 ]);
 
 function pad2(n) {

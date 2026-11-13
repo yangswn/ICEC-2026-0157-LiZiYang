@@ -247,7 +247,18 @@ function normalizeTask(input, existing = null) {
     sourceUrl: cleanText(input.sourceUrl ?? base.sourceUrl, 600) || '',
     remoteStatus: safeInt(input.remoteStatus ?? base.remoteStatus, 0),
     lastSeenAt: cleanText(input.lastSeenAt ?? base.lastSeenAt, 40) || '',
-    completedBy: cleanText(input.completedBy ?? base.completedBy, 20) || ''
+    completedBy: cleanText(input.completedBy ?? base.completedBy, 20) || '',
+    // 1.6.0：详情页补全出来的题目数量（未知为 null）
+    questionCount: (() => {
+      const raw = input.questionCount ?? base.questionCount;
+      if (raw === null || raw === undefined || raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 && n <= 9999 ? Math.trunc(n) : null;
+    })(),
+    // 详情页抓取成功的时间；抓失败不写，下次同步会重试
+    detailFetchedAt: cleanText(input.detailFetchedAt ?? base.detailFetchedAt, 40) || null,
+    // 用户手工改过截止时间：同步与补全都不许覆盖
+    dueAtManual: Boolean(input.dueAtManual ?? base.dueAtManual)
   };
 
   if (task.dueAt !== base.dueAt) {
@@ -510,10 +521,25 @@ class Store {
     return task;
   }
 
-  updateTask(id, patch) {
+  /**
+   * @param {string} id
+   * @param {object} patch
+   * @param {{manual?: boolean}} [options] manual=true 表示用户本人改的，
+   *        截止时间一旦被用户改过就打 dueAtManual，之后同步/补全都不覆盖。
+   */
+  updateTask(id, patch, options = {}) {
     const idx = this.state.tasks.findIndex((t) => t.id === id);
     if (idx < 0) throw new Error('TASK_NOT_FOUND');
     const existing = this.state.tasks[idx];
+
+    // 用户手工改期：打标记（同一个时间点不算改动）
+    if (options.manual && patch.dueAt !== undefined && patch.noDeadline !== true) {
+      const patchDue = parseDate(patch.dueAt);
+      const currentDue = parseDate(existing.dueAt);
+      const changed = patchDue && (!currentDue || patchDue.getTime() !== currentDue.getTime());
+      if (changed || existing.noDeadline) patch = { ...patch, dueAtManual: true };
+    }
+
     const updated = normalizeTask({ ...existing, ...patch, id: existing.id }, existing);
     if (patch.status === 'done' && existing.status !== 'done') {
       updated.completedAt = nowIso();
@@ -527,6 +553,33 @@ class Store {
     this.state.tasks[idx] = updated;
     this.scheduleSave();
     return updated;
+  }
+
+  /**
+   * 写入详情页补全的结果。
+   * 规则：
+   *   - 已有真实截止时间（非长期任务）→ 不覆盖；
+   *   - 用户手工改过（dueAtManual）→ 不覆盖；
+   *   - 只补“确实缺失”的字段。
+   * @returns {object|null} 实际更新后的任务
+   */
+  applyDetailEnrichment(id, { dueAt = null, questionCount = null, fetchedAt = null } = {}) {
+    const existing = this.state.tasks.find((t) => t.id === id);
+    if (!existing) return null;
+
+    const patch = {};
+    if (fetchedAt) patch.detailFetchedAt = fetchedAt;
+
+    const hasRealDue = existing.dueAt && !existing.noDeadline;
+    if (dueAt && !hasRealDue && !existing.dueAtManual) {
+      patch.dueAt = dueAt;
+      patch.noDeadline = false;
+    }
+    if (questionCount && !existing.questionCount) {
+      patch.questionCount = questionCount;
+    }
+    if (!Object.keys(patch).length) return existing;
+    return this.updateTask(id, patch);
   }
 
   deleteTask(id) {
@@ -650,7 +703,8 @@ class Store {
         let changed = false;
         if (remote.title && remote.title !== existing.title) changed = true;
         if (remote.course && remote.course !== existing.course) changed = true;
-        if (dueAt && dueAt !== existing.dueAt) {
+        // 用户手工改过截止时间 —— 平台同步不许覆盖，避免“改了又被改回去”
+        if (dueAt && dueAt !== existing.dueAt && !existing.dueAtManual) {
           patch.dueAt = dueAt;
           patch.noDeadline = false;
           changed = true;
