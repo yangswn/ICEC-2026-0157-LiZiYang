@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.3 — 2026-11-13
+
+升级时必须保住用户数据（任务 / 运行日志 / 登录 cookie）。
+
+### Added
+
+- 升级前同时备份**便携目录 `data\`**（含 `data.json`、`cx-cookies.json`、`process_logs`、`WebView2` 登录数据）与 `%APPDATA%\ClassBell` 的关键文件；
+- 备份后**逐一校验**（文件数 + 字节数）。校验不一致直接抛异常**中止安装**，绝不“先删后装”；
+- 备份目录保留不删，滚动保留最近 2 份，出问题可手工找回；
+- 恢复时只补缺失的那一份，并保留 cookie 与日志。
+
+### Verified
+
+- 实测 1.4.2 → 1.4.3 覆盖安装：任务 34 项、通知 2 条、`cx-cookies.json`、`process_logs/2026-11-13.jsonl` 全部保留；升级后**免重新登录**（`loggedIn: true`）；
+- 同级目录生成 `.classbell-data-backup-<时间戳>\`，内含 `install-data\` 与 `appdata\`。
 ## 1.4.2 — 2026-11-13
 
 ### Changed

@@ -7,3 +7,4 @@ require('./store.test.js');
 require('./scheduler.test.js');
 require('./telemetry.test.js');
 require('./single-instance.test.js');
+require('./upgrade-preserve.test.js');

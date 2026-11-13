@@ -15,7 +15,7 @@ namespace ClassBell.Setup
     internal static class Program
     {
         internal const string AppName = "课铃 ClassBell";
-        internal const string Version = "1.4.2";
+        internal const string Version = "1.4.3";
         internal const string Publisher = "ClassBell";
         internal const string ExeName = "ClassBell.exe";
         internal const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassBell";
@@ -240,7 +240,7 @@ namespace ClassBell.Setup
             if (!File.Exists(exe)) throw new Exception("安装包解压后缺少 ClassBell.exe。");
 
             // 便携版数据在安装目录里，卸载时会被清掉，这里恢复回来
-            RestorePreservedData(dir, preservedData);
+            RestoreUserData(dir, preservedData);
 
             try
             {
@@ -509,45 +509,166 @@ namespace ClassBell.Setup
             }
         }
 
-        /// <summary>把安装目录里的便携数据（data\）备份到临时目录，装完再恢复。</summary>
-        private static string PreservePortableData(string dir)
+        /* ------------------------------------------------- 用户数据保全 */
+
+        private const string AppDataFolderName = "ClassBell";
+
+        /// <summary>%APPDATA%\ClassBell（非便携模式的数据目录）。</summary>
+        private static string RoamingDataDir()
         {
-            string data = Path.Combine(dir, "data");
-            if (!Directory.Exists(data)) return null;
-            try
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppDataFolderName);
+        }
+
+        /// <summary>递归统计文件数与总字节，用于备份校验。</summary>
+        private static void MeasureTree(string dir, out int files, out long bytes)
+        {
+            files = 0;
+            bytes = 0;
+            if (!Directory.Exists(dir)) return;
+            foreach (string file in Directory.GetFiles(dir))
             {
-                // 放在安装目录的同级位置：同盘、可写，且不会被安装器的目录清理波及
-                string parent = Path.GetDirectoryName(dir);
-                if (string.IsNullOrEmpty(parent)) parent = Path.GetTempPath();
-                string backup = Path.Combine(parent, ".classbell-data-backup-" + Guid.NewGuid().ToString("N"));
-                CopyTree(data, backup);
-                TryLog("preserved portable data -> " + backup);
-                return backup;
+                files += 1;
+                try { bytes += new FileInfo(file).Length; } catch { }
             }
-            catch (Exception ex)
+            foreach (string sub in Directory.GetDirectories(dir))
             {
-                TryLog("preserve portable data failed: " + ex.Message);
-                return null;
+                int subFiles;
+                long subBytes;
+                MeasureTree(sub, out subFiles, out subBytes);
+                files += subFiles;
+                bytes += subBytes;
             }
         }
 
-        private static void RestorePreservedData(string dir, string backup)
+        /// <summary>复制后校验：文件数与字节数必须一致。</summary>
+        private static bool CopyTreeVerified(string from, string to)
+        {
+            CopyTree(from, to);
+            int fromFiles, toFiles;
+            long fromBytes, toBytes;
+            MeasureTree(from, out fromFiles, out fromBytes);
+            MeasureTree(to, out toFiles, out toBytes);
+            bool ok = fromFiles == toFiles && fromBytes == toBytes;
+            TryLog("backup verify " + (ok ? "OK" : "MISMATCH") + " files " + fromFiles + "/" + toFiles
+                + " bytes " + fromBytes + "/" + toBytes);
+            return ok;
+        }
+
+        /// <summary>
+        /// 升级前备份用户数据（便携 data\ 与非便携 %APPDATA%\ClassBell 都备）。
+        /// 备份或校验失败会抛异常 —— 调用方据此中止安装，绝不先删后装。
+        /// </summary>
+        private static string PreserveUserData(string dir)
+        {
+            string portableData = Path.Combine(dir, "data");
+            string roamingData = RoamingDataDir();
+            bool hasPortable = Directory.Exists(portableData) && File.Exists(Path.Combine(portableData, "data.json"));
+            bool hasRoaming = Directory.Exists(roamingData) && File.Exists(Path.Combine(roamingData, "data.json"));
+            if (!hasPortable && !hasRoaming) return null;
+
+            string parent = Path.GetDirectoryName(dir);
+            if (string.IsNullOrEmpty(parent)) parent = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            string backup = Path.Combine(parent, ".classbell-data-backup-" + stamp);
+            int suffix = 1;
+            while (Directory.Exists(backup))
+            {
+                backup = Path.Combine(parent, ".classbell-data-backup-" + stamp + "-" + suffix);
+                suffix += 1;
+            }
+
+            Directory.CreateDirectory(backup);
+
+            if (hasPortable)
+            {
+                if (!CopyTreeVerified(portableData, Path.Combine(backup, "install-data")))
+                    throw new Exception("备份现有数据失败（安装目录 data\\ 校验不一致），已中止安装。请关闭课铃后重试。");
+            }
+
+            if (hasRoaming)
+            {
+                // 非便携模式：只备关键文件 + 日志，避免把 WebView2 缓存也复制一份
+                string roamingBackup = Path.Combine(backup, "appdata");
+                Directory.CreateDirectory(roamingBackup);
+                foreach (string name in new[] { "data.json", "data.backup.json", "cx-cookies.json", "window.json", "install.id" })
+                {
+                    string src = Path.Combine(roamingData, name);
+                    if (File.Exists(src)) File.Copy(src, Path.Combine(roamingBackup, name), true);
+                }
+                string logs = Path.Combine(roamingData, "process_logs");
+                if (Directory.Exists(logs))
+                {
+                    if (!CopyTreeVerified(logs, Path.Combine(roamingBackup, "process_logs")))
+                        throw new Exception("备份运行日志失败（校验不一致），已中止安装。");
+                }
+            }
+
+            TryLog("user data preserved -> " + backup);
+            return backup;
+        }
+
+        /// <summary>
+        /// 装完后恢复用户数据：哪一份缺失就补哪一份，并校验。
+        /// 备份目录保留不删（滚动保留最近 2 份），出问题还能手工找回。
+        /// </summary>
+        private static void RestoreUserData(string dir, string backup)
         {
             if (string.IsNullOrEmpty(backup) || !Directory.Exists(backup)) return;
+
             try
             {
-                string data = Path.Combine(dir, "data");
-                if (!Directory.Exists(data)) CopyTree(backup, data);
-                TryLog("restored portable data");
+                string portableFrom = Path.Combine(backup, "install-data");
+                string portableTo = Path.Combine(dir, "data");
+                if (Directory.Exists(portableFrom))
+                {
+                    if (!File.Exists(Path.Combine(portableTo, "data.json")))
+                    {
+                        CopyTree(portableFrom, portableTo);
+                        TryLog("restored portable data");
+                    }
+                }
+
+                string roamingFrom = Path.Combine(backup, "appdata");
+                string roamingTo = RoamingDataDir();
+                if (Directory.Exists(roamingFrom))
+                {
+                    Directory.CreateDirectory(roamingTo);
+                    foreach (string file in Directory.GetFiles(roamingFrom))
+                    {
+                        string target = Path.Combine(roamingTo, Path.GetFileName(file));
+                        if (!File.Exists(target)) File.Copy(file, target, false);
+                    }
+                    string logsFrom = Path.Combine(roamingFrom, "process_logs");
+                    if (Directory.Exists(logsFrom))
+                    {
+                        string logsTo = Path.Combine(roamingTo, "process_logs");
+                        CopyTree(logsFrom, logsTo);
+                    }
+                    TryLog("restored appdata files");
+                }
             }
             catch (Exception ex)
             {
-                TryLog("restore portable data failed: " + ex.Message);
+                TryLog("restore user data failed: " + ex.Message);
             }
-            finally
+
+            PruneOldBackups(Path.GetDirectoryName(backup));
+        }
+
+        /// <summary>滚动保留最近 2 份备份，避免长期占用磁盘。</summary>
+        private static void PruneOldBackups(string parent)
+        {
+            try
             {
-                try { Directory.Delete(backup, true); } catch { }
+                if (string.IsNullOrEmpty(parent) || !Directory.Exists(parent)) return;
+                var dirs = Directory.GetDirectories(parent, ".classbell-data-backup-*");
+                Array.Sort(dirs, StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < dirs.Length - 2; i += 1)
+                {
+                    try { Directory.Delete(dirs[i], true); } catch { }
+                }
             }
+            catch { }
         }
 
         private static void CopyTree(string from, string to)
@@ -564,8 +685,8 @@ namespace ClassBell.Setup
         }
 
         /// <summary>
-        /// 已装旧版本且版本更低时：备份便携数据 → 跑卸载器 → 清掉残留文件。
-        /// 返回便携数据备份路径（没有则 null），由调用方在解压后恢复。
+        /// 已装旧版本且版本更低时：备份用户数据（校验通过才继续）→ 跑卸载器 →
+        /// 等延迟删除落空。任何备份失败都会抛出，安装随之中止，不会删数据。
         /// </summary>
         private static string UpgradeFromPrevious(string dir, IProgress<int> progress)
         {
@@ -581,11 +702,11 @@ namespace ClassBell.Setup
             }
 
             if (progress != null) progress.Report(1);
-            string preserved = PreservePortableData(dir);
+            string preserved = PreserveUserData(dir);
             UninstallPrevious(dir);
 
             // 旧版卸载器会安排 "timeout 2 & rmdir /s /q <dir>"。
-            // 必须先把这个延迟删除等过去，否则它会把我们刚解压的文件删掉。
+            // 必须把这个延迟删除等过去，否则它会把我们刚解压的文件删掉。
             WaitForDirectoryRemoved(dir, 20000);
             Thread.Sleep(2500);
             return preserved;
@@ -609,27 +730,6 @@ namespace ClassBell.Setup
                 Thread.Sleep(400);
             }
             TryLog("install dir still present after wait: " + dir);
-        }
-
-        /// <summary>卸载后清掉目录里剩下的旧文件（保留目录本身）。</summary>
-        private static void ClearInstallDir(string dir)
-        {
-            try
-            {
-                if (!Directory.Exists(dir)) return;
-                foreach (string file in Directory.GetFiles(dir))
-                {
-                    try { File.Delete(file); } catch { }
-                }
-                foreach (string sub in Directory.GetDirectories(dir))
-                {
-                    try { Directory.Delete(sub, true); } catch { }
-                }
-            }
-            catch (Exception ex)
-            {
-                TryLog("clear install dir failed: " + ex.Message);
-            }
         }
 
         internal static Stream FindResource(string suffix)
