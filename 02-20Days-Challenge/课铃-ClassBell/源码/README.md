@@ -99,6 +99,29 @@ Node 本地服务
 
 选择 WebView2 + 本地服务而不是 Electron，是因为安装包更小、无需管理员权限，并且能直接使用 Windows 自带的 WebView2 运行时。
 
+## 同步到作业仓库
+
+**规则：代码只在 `campus-pulse` 改，作业仓库只接收单向镜像。**
+
+- 主仓库（唯一改代码的地方）：`campus-pulse`
+- 作业仓库镜像目录：`ICEC-2026-0157-LiZiYang/02-20Days-Challenge/课铃-ClassBell/源码/`
+
+同步命令（在本目录执行）：
+
+```powershell
+# 先看会改什么，不动文件
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\sync-to-icec.ps1 -DryRun
+
+# 确认后真正同步
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\sync-to-icec.ps1
+```
+
+脚本用 `robocopy /MIR` 做镜像：目标里多出的文件会被删除，保证两边完全一致；
+排除 `dist`、`node_modules`、`data`、`installer\build` 等本机生成物。
+
+> 注意：镜像后第一次 `git status` 可能把若干文件显示为已修改，那是 LF/CRLF 归一化造成的；
+> 执行一次 `git add` 后内容会回到与仓库一致（不会产生真实改动）。
+
 ## 安全边界
 
 本地服务只监听 `127.0.0.1`，并在此基础上加了三层限制：
