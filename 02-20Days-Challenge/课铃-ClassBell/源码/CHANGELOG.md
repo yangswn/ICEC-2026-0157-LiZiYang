@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.2 — 2026-11-14
+
+### Fixed
+
+- **右键托盘图标第一次会打开窗口、不弹菜单**：`NotifyIcon.Click` 不区分左右键，右键也会执行 `ShowMain()`，窗口被顶到前面抢走焦点，`ContextMenuStrip` 那一次就弹不出来（第二次右键才正常）。改用 `MouseClick` + `e.Button == MouseButtons.Left`，只对左键响应；左键单击打开窗口的惯例保留，双击仍单独绑定。
+
+### Added
+
+- `tests/tray-menu.test.js`：锁住三条代码契约——不再出现 `tray.Click`、`MouseClick` 必须判断左键、`ShowMain` 保持幂等（双击会先发两次 MouseClick）。
+
+### Known issue（未修，另行处理）
+
+- 在开发机上（Win11）课铃的托盘图标**没有出现在托盘区或溢出区**：溢出区 19 个图标里没有课铃，唯一无名格子左键点击也不会打开课铃。注册表 `NotifyIconSettings` 里只有两条旧路径（桌面 portable-test、%LOCALAPPDATA%\Programs\ClassBell），当前安装路径没有条目。因此本次无法在该机器上用真实右键验收，需要另开一轮排查。
 ## 1.6.1 — 2026-11-14
 
 修三个缺陷（来自第二次源码复审）。

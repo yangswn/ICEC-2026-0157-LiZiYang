@@ -1045,8 +1045,18 @@ namespace ClassBell
                 Close();
             });
             tray.ContextMenuStrip = menu;
+
+            // NotifyIcon.Click 不区分左右键：右键也会走到这里，把窗口顶到前面抢掉焦点，
+            // ContextMenuStrip 那一次就弹不出来，用户看到的是“第一次右键打开了窗口”。
+            // MouseClick 的 EventArgs 是 MouseEventArgs，能拿到按键，所以左键才打开窗口。
+            tray.MouseClick += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left) ShowMain();
+            };
+
+            // 双击要单独绑：MouseClick 只给单击，双击时系统会先发两次 MouseClick，
+            // ShowMain 是幂等的（只恢复/显示/激活，不重建界面），所以重复调用不会闪、不会重载。
             tray.DoubleClick += (s, e) => ShowMain();
-            tray.Click += (s, e) => ShowMain();
         }
 
         /// <summary>
