@@ -293,6 +293,8 @@ async function boot() {
     bindEvents();
     initWebview();
     loadLogs();
+    // 估时要跑模型，可能几十秒；首屏已经出来了，这里后台补，不挡界面
+    warmEstimates();
     startTicker();
     syncAutoScanUi();
     if (autoScanEnabled()) startAutoScan();
@@ -492,6 +494,87 @@ function renderDashboard() {
   renderUpcoming();
   renderWeekChart();
   renderCxMini();
+  renderTonight();
+}
+
+const TONIGHT_BUDGET_LABEL = { 60: '1 小时', 120: '2 小时', 180: '3 小时', 300: '半天' };
+
+function minutesLabel(minutes) {
+  const n = Math.max(1, Math.round(Number(minutes) || 0));
+  if (n < 60) return `${n} 分钟`;
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
+}
+
+function questionLabel(task) {
+  const n = Number(task.questionCount);
+  return Number.isFinite(n) && n > 0 ? `${n} 题` : '';
+}
+
+function renderTonight() {
+  const panel = $('#tonight-panel');
+  if (!panel) return;
+  const pending = pendingTasks();
+
+  // 只有一两条的时候没必要做预算，整块藏起来
+  if (pending.length < 2) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  $$('#tonight-budget .seg').forEach((btn) => {
+    btn.classList.toggle('active', Number(btn.dataset.budget) === App.tonightBudget);
+  });
+
+  const result = $('#tonight-result');
+  if (!App.tonightBudget) {
+    result.innerHTML = '';
+    $('#tonight-sub').textContent = '先说你还有多久，再按紧迫度排给你 —— 顺序只按截止时间，不靠模型猜。';
+    return;
+  }
+  if (App.tonightLoading) {
+    result.innerHTML = '<div class="tonight-loading">正在看这些任务大概要多久…</div>';
+    return;
+  }
+
+  const plan = App.tonightPlan;
+  if (!plan) {
+    result.innerHTML = '';
+    return;
+  }
+  if (!plan.items.length) {
+    result.innerHTML = `<div class="tonight-empty">${esc(minutesLabel(plan.budget))}做不完一条，先挑一条你最有把握的。`
+      + `</div>`;
+    return;
+  }
+
+  $('#tonight-sub').textContent =
+    `今晚 ${TONIGHT_BUDGET_LABEL[plan.budget] || minutesLabel(plan.budget)}，这 ${plan.items.length} 条能做完（大概 ${minutesLabel(plan.used)}）`;
+
+  result.innerHTML = plan.items.map((item, index) => `
+    <div class="tonight-item" data-id="${esc(item.id)}">
+      <span class="tonight-index">${index + 1}</span>
+      <button class="tonight-title" data-act="edit" data-id="${esc(item.id)}">${esc(item.title)}</button>
+      <span class="tonight-minutes" title="${esc(item.hint || '')}">${esc(minutesLabel(item.minutes))}</span>
+      <span class="tonight-meta">${esc(questionLabel(item) || item.course || '')}</span>
+    </div>`).join('')
+    + `<div class="tonight-total">做完这 ${plan.items.length} 条，待办降到 ${plan.remainingAfter} 条</div>`;
+}
+
+function setTonightBudget(minutes) {
+  App.tonightBudget = minutes;
+  App.tonightLoading = true;
+  App.tonightPlan = null;
+  renderTonight();
+  api.tonightPlan(minutes)
+    .then((plan) => { App.tonightPlan = plan; })
+    .catch((error) => { toast(`估时失败：${error.message || error}`, 'error'); })
+    .finally(() => {
+      App.tonightLoading = false;
+      renderTonight();
+    });
 }
 
 function renderHero() {
@@ -695,10 +778,13 @@ function taskRowHTML(task) {
           <span class="dot"></span>
           <span>${esc(CATEGORY_LABEL[task.category] || '任务')}</span>
           ${task.notes ? '<span class="dot"></span><span>有备注</span>' : ''}
+          ${task.estimatedMinutes ? `<span class="dot"></span><span class="task-estimate" title="${esc(ESTIMATE_HINT[task.estimateSource] || '大概估的')}">约 ${esc(minutesLabel(task.estimatedMinutes))}</span>` : ''}
         </div>
       </div>
       <div class="task-due ${due.cls}">${esc(due.text)}<small>${esc(due.sub)}</small></div>
       <div class="task-actions">
+        ${!isDone && !isMissed && !task.startAt ? `<button class="task-action start" data-act="start" data-id="${esc(task.id)}" title="开始做：记下开工时间，完成时才知道真实耗时" aria-label="开始做"><svg><use href="#i-clock"/></svg></button>` : ''}
+        ${!isDone && !isMissed && task.startAt ? `<span class="task-running" title="已经开始计时，点完成就会算出实际耗时">进行中</span>` : ''}
         <button class="task-action" data-act="edit" data-id="${esc(task.id)}" title="编辑" aria-label="编辑"><svg><use href="#i-edit"/></svg></button>
         <button class="task-action danger" data-act="delete" data-id="${esc(task.id)}" title="删除" aria-label="删除"><svg><use href="#i-trash"/></svg></button>
       </div>
@@ -1932,6 +2018,13 @@ function bindEvents() {
 
   $$('.nav-item').forEach((item) => item.addEventListener('click', () => setPage(item.dataset.page)));
   document.addEventListener('click', (event) => {
+    const budgetBtn = event.target.closest('#tonight-budget .seg');
+    if (budgetBtn) {
+      event.preventDefault();
+      const minutes = Number(budgetBtn.dataset.budget);
+      if (minutes > 0) setTonightBudget(minutes);
+      return;
+    }
     const goto = event.target.closest('[data-goto]');
     if (goto) { setPage(goto.dataset.goto); return; }
     const act = event.target.closest('[data-act]');
@@ -1947,6 +2040,7 @@ function bindEvents() {
       case 'complete': completeTask(id); break;
       case 'delete': removeTask(id); break;
       case 'toggle': toggleTask(id); break;
+    case 'start': startTaskNow(id); break;
       case 'candidate-add': {
         const candidate = (App.state.candidates || []).find((c) => c.id === id);
         if (candidate) openTaskModal(null, candidate);
@@ -2266,8 +2360,7 @@ async function toggleTask(id) {
       await api.restoreTask(id);
       toast('已恢复为待完成。', 'success');
     } else {
-      const result = await api.completeTask(id);
-      toast(result && result.next ? '已完成，并生成了下一次重复日程。' : '已完成，做得好。', 'success');
+      await finishWithDuration(task);
     }
     applyPayload(await api.getState());
   } catch (error) {
@@ -2276,12 +2369,92 @@ async function toggleTask(id) {
 }
 
 async function completeTask(id) {
+  const task = App.state.tasks.find((t) => t.id === id);
+  if (!task) return;
+  await finishWithDuration(task);
+}
+
+const ESTIMATE_HINT = {
+  history: '按你以前做同类任务的实际耗时',
+  model: '本机模型估的',
+  rule: '按题量算的',
+  guess: '按标题和平均值估的'
+};
+
+/**
+ * 点「开始做」：只记开工时间，不弹任何确认 —— 用户此刻正要开始，别拦他。
+ */
+async function startTaskNow(id) {
   try {
-    const result = await api.completeTask(id);
+    await api.startTask(id);
+    applyPayload(await api.getState());
+    toast('已开始计时。做完点完成，就会记下实际花了多久。', 'success', 3600);
+  } catch (error) {
+    toast(`记不下开工时间：${error.message || error}`, 'error');
+  }
+}
+
+/**
+ * 完成一条任务。
+ * 已经点过「开始做」的，用真实耗时，不再问；
+ * 没点过就问一次区间 —— 只问一次，不反复追问，也不自己推断
+ * （开着课铃去吃饭不等于做了 20 分钟，错的记录比没有记录更糟）。
+ */
+async function finishWithDuration(task) {
+  let minutes = null;
+  if (!task.startAt && !task.actualMinutes) {
+    minutes = await askDuration();
+  }
+  try {
+    const result = minutes
+      ? await api.completeTaskWithMinutes(task.id, minutes)
+      : await api.completeTask(task.id);
     toast(result && result.next ? '已完成，并生成了下一次重复日程。' : '已完成，做得好。', 'success');
     applyPayload(await api.getState());
   } catch (error) {
     toast(`操作失败：${error.message || error}`, 'error');
+  }
+}
+
+/**
+ * 问一次耗时。返回分钟数；选「不记了」返回 null 表示照常完成、只是不记时长。
+ */
+function askDuration() {
+  return new Promise((resolve) => {
+    const modal = $('#duration-modal');
+    if (!modal) { resolve(null); return; }
+    modal.hidden = false;
+    const cleanup = (value) => {
+      modal.hidden = true;
+      $$('#duration-modal [data-minutes]').forEach((btn) => { btn.onclick = null; });
+      const skip = $('#duration-skip');
+      if (skip) skip.onclick = null;
+      resolve(value);
+    };
+    $$('#duration-modal [data-minutes]').forEach((btn) => {
+      btn.onclick = () => cleanup(Number(btn.dataset.minutes));
+    });
+    const skip = $('#duration-skip');
+    if (skip) skip.onclick = () => cleanup(null);
+  });
+}
+
+let estimatesWarmed = false;
+
+/**
+ * 后台预热估时：只跑一次。首屏已经渲染完，这里估完再刷新一次状态，
+ * 任务行里的「约 N 分钟」就会自己出现，用户不用先点今晚预算。
+ */
+async function warmEstimates() {
+  if (estimatesWarmed) return;
+  estimatesWarmed = true;
+  try {
+    const result = await api.estimateAll();
+    if (result && result.estimates && Object.keys(result.estimates).length) {
+      applyPayload(await api.getState());
+    }
+  } catch (_) {
+    // 估时失败不影响任何主流程：任务照样能看、能完成
   }
 }
 

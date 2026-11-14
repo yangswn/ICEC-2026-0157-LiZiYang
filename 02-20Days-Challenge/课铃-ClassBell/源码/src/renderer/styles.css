@@ -963,3 +963,30 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid #d8d2c4; border
 
 /* 日志结果三态：已恢复用中性色，不用红色 */
 .recover-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: #f4eddc; color: #8a6b2f; font-size: 10.5px; font-weight: 600; }
+
+/* 今晚能做多少：预算按钮 + 能给完的几条 */
+.tonight-panel { padding: 18px 20px 20px; }
+.tonight-budget { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0 14px; }
+.tonight-budget-label { font-size: 12.5px; color: var(--muted); margin-right: 4px; }
+.tonight-panel .seg { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 12.5px; color: var(--ink-2); cursor: pointer; transition: all .16s ease; }
+.tonight-panel .seg:hover { border-color: var(--gold); color: var(--ink); }
+.tonight-panel .seg.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.tonight-loading, .tonight-empty { font-size: 12.5px; color: var(--muted); padding: 6px 0 2px; }
+.tonight-item { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line); }
+.tonight-item:last-of-type { border-bottom: none; }
+.tonight-index { width: 18px; font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.tonight-title { flex: 1; min-width: 0; text-align: left; background: none; border: none; padding: 0; font-size: 13.5px; color: var(--ink); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tonight-title:hover { color: var(--gold-deep); text-decoration: underline; }
+.tonight-minutes { font-size: 12.5px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.tonight-meta { width: 68px; text-align: right; font-size: 11.5px; color: var(--muted-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tonight-total { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+
+/* 任务行里的估时与「进行中」 */
+.task-estimate { color: var(--muted); cursor: help; }
+.task-running { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: #f5eddc; color: var(--gold-deep); border: 1px solid #e9d9b8; }
+.task-action.start { color: var(--gold-deep); }
+
+/* 完成时问耗时 */
+.duration-actions { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 6px; }
+.duration-actions .btn { width: 100%; }
+.duration-skip { align-self: center; margin-top: 6px; font-size: 12px; color: var(--muted); }

@@ -30,6 +30,9 @@ const telemetry = new Telemetry({
   mirrorDir: (process.env.CLASSBELL_LOG_MIRROR || process.env.CAMPUSPULSE_LOG_MIRROR) || store.state.settings.logMirrorDir,
   appVersion: packageJson.version
 });
+const estimate = require('./estimate');
+const ollama = require('./ollama');
+
 const chaoxing = new ChaoxingService({ telemetry });
 const clients = new Set();
 let syncPromise = null;
@@ -344,6 +347,81 @@ async function maybeAutoSync() {
   await runSync({ auto: true });
 }
 
+/* ---------------------------------------------------------------- estimate */
+
+/** 当天的日期键（本地时区），用来判断「今天估过了」。 */
+function localDayKey(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** 一条任务今天已经估过 → 直接用存下来的值。 */
+function cachedEstimate(task, day) {
+  if (!task || task.estimateDay !== day) return null;
+  const minutes = Number(task.estimatedMinutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  return { minutes, source: task.estimateSource || 'guess' };
+}
+
+/**
+ * 保证这批任务今天的估时都在。
+ * 只估缺的；已经估过的当天不再调模型 —— 一批 30 条问一次就够了，
+ * 每次刷新页面都问一遍既慢又浪费。
+ */
+async function ensureEstimates(tasks, { force = false } = {}) {
+  const day = localDayKey();
+  const result = new Map();
+  const missing = [];
+
+  for (const task of tasks || []) {
+    const hit = force ? null : cachedEstimate(task, day);
+    if (hit) result.set(task.id, hit);
+    else missing.push(task);
+  }
+
+  if (!missing.length) return result;
+
+  const finished = store.state.tasks.filter((t) => t.status === 'done');
+  const useModel = store.state.settings.useModelEstimate !== false;
+  const estimateMap = await estimate.estimateTasks(missing, {
+    finished,
+    useModel,
+    // 模型失败会抛错，estimate.js 里整批回退到规则
+    askModel: useModel ? (batch) => ollama.askModel(batch) : null
+  });
+
+  for (const task of missing) {
+    const hit = estimateMap.get(task.id);
+    if (!hit) continue;
+    result.set(task.id, hit);
+    try {
+      store.updateTask(task.id, {
+        estimatedMinutes: hit.minutes,
+        estimateSource: hit.source,
+        estimateDay: day
+      });
+    } catch (_) { /* 估时写不进去也不能让接口挂掉 */ }
+  }
+
+  log('estimate_batch', {
+    meta: {
+      checked: missing.length,
+      sources: countBy([...estimateMap.values()], (v) => v.source)
+    }
+  });
+  return result;
+}
+
+function countBy(list, pick) {
+  const out = {};
+  for (const item of list) {
+    const key = pick(item);
+    out[key] = (out[key] || 0) + 1;
+  }
+  return out;
+}
+
+
 /* ------------------------------------------------------------------ reminders */
 
 const scheduler = new ReminderScheduler({
@@ -429,7 +507,42 @@ async function handleApi(req, res) {
     scheduler.check();
     return json(res, 200, task);
   }
-  const taskMatch = /^\/api\/tasks\/([^/]+)(?:\/(complete|restore))?$/.exec(p);
+  if (p === '/api/estimate' && method === 'GET') {
+    const pending = store.state.tasks.filter((t) => t.status === 'pending');
+    const map = await ensureEstimates(pending);
+    const estimates = {};
+    for (const [id, hit] of map) {
+      estimates[id] = { minutes: hit.minutes, source: hit.source, hint: estimate.SOURCE_HINT[hit.source] || '' };
+    }
+    return json(res, 200, {
+      day: localDayKey(),
+      modelAvailable: Boolean(store.state.settings.useModelEstimate),
+      estimates
+    });
+  }
+
+  if (p === '/api/tonight' && method === 'GET') {
+    // 预算由用户给（1/2/3 小时或半天），这里只负责「能做完哪几条」，不重新排序
+    const budget = Math.max(15, Math.min(12 * 60, Number(url.searchParams.get('minutes')) || 120));
+    const pending = store.state.tasks.filter((t) => t.status === 'pending');
+    const map = await ensureEstimates(pending);
+
+    // 排序与累加都在 estimate.planTonight 里（纯函数，单测覆盖）
+    const plan = estimate.planTonight(pending, map, budget);
+    for (const item of plan.items) {
+      item.hint = estimate.SOURCE_HINT[item.source] || '';
+    }
+
+    return json(res, 200, {
+      budget: plan.budget,
+      used: plan.used,
+      items: plan.items,
+      remaining: pending.length,
+      remainingAfter: Math.max(0, pending.length - plan.items.length)
+    });
+  }
+
+  const taskMatch = /^\/api\/tasks\/([^/]+)(?:\/(complete|restore|start))?$/.exec(p);
   if (taskMatch) {
     const id = decodeURIComponent(taskMatch[1]);
     if (method === 'PATCH' || method === 'PUT') {
@@ -446,8 +559,21 @@ async function handleApi(req, res) {
       broadcastState();
       return json(res, 200, { ok: true });
     }
+    if (method === 'POST' && taskMatch[2] === 'start') {
+      const task = store.startTask(id);
+      log('task_started', { meta: { hasQuestions: Boolean(task.questionCount) } });
+      broadcastState();
+      return json(res, 200, task);
+    }
+
     if (method === 'POST' && taskMatch[2] === 'complete') {
-      const result = store.completeTask(id);
+      // 没点「开始做」的任务，前端会问一次耗时再带上来
+      let actualMinutes;
+      try {
+        const body = await readJsonObject(req);
+        actualMinutes = body.actualMinutes;
+      } catch (_) { /* 没带 body 就是直接完成 */ }
+      const result = store.completeTask(id, { actualMinutes });
       log('task_completed', { meta: { recurring: Boolean(result.next) } });
       broadcastState();
       return json(res, 200, result);

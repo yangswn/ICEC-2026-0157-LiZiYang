@@ -102,6 +102,8 @@ function defaultSettings() {
     autoSyncIntervalMin: 30,
     autoAddFromChaoxing: true,
     reminderOffsets: [1440, 60, 10],
+    // 有本机 Ollama 就用它估时；没装的话 estimate.js 会自动回退到规则
+    useModelEstimate: true,
     sound: true,
     quietHours: { enabled: false, start: '23:00', end: '07:00' },
     logMirrorDir: '',
@@ -337,7 +339,32 @@ function normalizeTask(input, existing = null) {
     // 详情页抓取成功的时间；抓失败不写，下次同步会重试
     detailFetchedAt: cleanText(input.detailFetchedAt ?? base.detailFetchedAt, 40) || null,
     // 用户手工改过截止时间：同步与补全都不许覆盖
-    dueAtManual: Boolean(input.dueAtManual ?? base.dueAtManual)
+    dueAtManual: Boolean(input.dueAtManual ?? base.dueAtManual),
+
+    // 开工时间：用户点「开始做」时写入，用来算实际耗时
+    startAt: (() => {
+      const raw = input.startAt ?? base.startAt;
+      const d = raw ? parseDate(raw) : null;
+      return d ? d.toISOString() : null;
+    })(),
+
+    // 实际耗时（分钟）：真实计时或用户自选区间，绝不推断
+    actualMinutes: (() => {
+      const raw = input.actualMinutes ?? base.actualMinutes;
+      if (raw === null || raw === undefined || raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 && n <= 24 * 60 ? Math.round(n) : null;
+    })(),
+
+    estimatedMinutes: (() => {
+      const raw = input.estimatedMinutes ?? base.estimatedMinutes;
+      if (raw === null || raw === undefined || raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    })(),
+    estimateSource: cleanText(input.estimateSource ?? base.estimateSource, 20) || null,
+    // 估时是哪天算的：同一天只估一次，跨天重新算（题量/历史都可能变了）
+    estimateDay: cleanText(input.estimateDay ?? base.estimateDay, 10) || null
   };
 
   if (task.dueAt !== base.dueAt) {
@@ -684,11 +711,42 @@ class Store {
     return true;
   }
 
-  completeTask(id) {
+  /**
+   * 点「开始做」：记下开工时刻。重复点只更新到最新一次，
+   * 因为用户中途去做了别的事，再回来就是新的一段。
+   */
+  startTask(id) {
+    const existing = this.state.tasks.find((t) => t.id === id);
+    if (!existing) throw new Error('TASK_NOT_FOUND');
+    return this.updateTask(id, { startAt: nowIso() });
+  }
+
+  /**
+   * 完成一条任务。
+   * @param {string} id
+   * @param {{actualMinutes?: number}} [options] 用户自选的实际耗时区间；
+   *   不传时如果任务有 startAt，就用「现在 - 开工时间」算。
+   */
+  completeTask(id, options = {}) {
     const existing = this.state.tasks.find((t) => t.id === id);
     if (!existing) throw new Error('TASK_NOT_FOUND');
     if (existing.status === 'done') return { task: existing, next: null };
-    const done = this.updateTask(id, { status: 'done', completedBy: 'user' });
+
+    const patchExtra = { status: 'done', completedBy: 'user' };
+    const manualMinutes = Number(options.actualMinutes);
+    if (Number.isFinite(manualMinutes) && manualMinutes > 0) {
+      // 用户自己选的区间最可信，直接用
+      patchExtra.actualMinutes = Math.min(24 * 60, Math.round(manualMinutes));
+    } else if (existing.startAt) {
+      // 有开工时间才算真实耗时：这是唯一的「客观」来源
+      const elapsed = (Date.now() - Date.parse(existing.startAt)) / 60000;
+      if (Number.isFinite(elapsed) && elapsed > 0) {
+        // 上限压到 24 小时：放着过夜再回来点完成不该记成「做了 600 分钟」
+        patchExtra.actualMinutes = Math.max(1, Math.min(24 * 60, Math.round(elapsed)));
+      }
+    }
+
+    const done = this.updateTask(id, patchExtra);
     let next = null;
     if (existing.recurrence !== 'none') {
       // 传 now：补完一条过期好几天的重复任务时，下一期要落在今天之后，
@@ -713,7 +771,7 @@ class Store {
       'autoAddFromChaoxing', 'sound', 'quietHours', 'logMirrorDir',
       'displayName', 'firstRun', 'reminderOffsets',
       'uiScale', 'scaleGuideDone', 'lastPage',
-      'closeHintShown', 'trayHintShown'
+      'closeHintShown', 'trayHintShown', 'useModelEstimate'
     ];
     const next = { ...this.state.settings };
     for (const key of allowed) {

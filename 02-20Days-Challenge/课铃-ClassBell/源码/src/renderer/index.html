@@ -85,7 +85,7 @@
         <div class="sidebar-foot">
           <button class="side-quit" id="btn-quit-side" title="终止课铃并关闭后台服务"><svg><use href="#i-power"/></svg><span>终止课铃</span></button>
           <div class="foot-line"><span>数据仅保存在本机</span><svg><use href="#i-shield"/></svg></div>
-          <div class="foot-version" id="foot-version">v1.6.3</div>
+          <div class="foot-version" id="foot-version">v1.7.0</div>
         </div>
       </aside>
 
@@ -144,6 +144,25 @@
             <div class="stat-card"><span class="stat-label">今日截止</span><strong id="stat-today">0</strong><em>项</em></div>
             <div class="stat-card"><span class="stat-label">本周截止</span><strong id="stat-week">0</strong><em>项</em></div>
             <div class="stat-card accent"><span class="stat-label">已完成</span><strong id="stat-done">0</strong><em>项</em></div>
+          </div>
+
+          <div class="panel tonight-panel" id="tonight-panel" hidden>
+            <div class="panel-head compact">
+              <div>
+                <h2>今晚能做多少</h2>
+                <p id="tonight-sub">先说你还有多久，再按紧迫度排给你。</p>
+              </div>
+            </div>
+
+            <div class="tonight-budget" id="tonight-budget">
+              <span class="tonight-budget-label">今晚还有多久？</span>
+              <button class="seg" data-budget="60">1 小时</button>
+              <button class="seg" data-budget="120">2 小时</button>
+              <button class="seg" data-budget="180">3 小时</button>
+              <button class="seg" data-budget="300">半天</button>
+            </div>
+
+            <div class="tonight-result" id="tonight-result"></div>
           </div>
 
           <div class="dash-columns">
@@ -522,7 +541,7 @@
               </div>
 
               <div class="panel settings-panel about-panel">
-                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.6.3</span></div></div>
+                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.7.0</span></div></div>
                 <p>面向大学生的轻量课程任务提醒工具。非学习通官方产品，仅读取你本人有权访问的课程数据。</p>
                 <div class="about-links">
                   <button class="link-btn" id="btn-open-data-2"><svg><use href="#i-folder"/></svg>数据目录</button>
@@ -700,6 +719,20 @@
         <button class="btn btn-ghost" id="confirm-cancel">取消</button>
         <button class="btn btn-danger" id="confirm-ok">确认</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="duration-modal" hidden>
+    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="duration-title">
+      <div class="confirm-icon"><svg><use href="#i-clock"/></svg></div>
+      <h2 id="duration-title">这条大概花了多久？</h2>
+      <p id="duration-text">记个大概就行，以后同类任务会按你实际花的时间来估。</p>
+      <div class="duration-actions">
+        <button class="btn btn-ghost" data-minutes="20">不到 30 分钟</button>
+        <button class="btn btn-soft" data-minutes="45">30～60 分钟</button>
+        <button class="btn btn-soft" data-minutes="90">1 小时以上</button>
+      </div>
+      <button class="link-btn duration-skip" id="duration-skip">不记了，直接完成</button>
     </div>
   </div>
 

@@ -201,6 +201,14 @@
       return true;
     },
     pageView: (page) => request('POST', '/api/log/page', { page }),
+    // 今晚能做多少：budgetMinutes 由用户点 1/2/3 小时或半天决定
+    tonightPlan: (budgetMinutes) => request('GET', `/api/tonight?minutes=${encodeURIComponent(budgetMinutes)}`),
+    // 预热估时：首屏不等它，估完再刷新一次
+    estimateAll: () => request('GET', '/api/estimate'),
+    // 点「开始做」记开工时间，完成时才知道真实耗时
+    startTask: (id) => request('POST', `/api/tasks/${encodeURIComponent(id)}/start`, {}),
+    // 没点开始做的任务，完成时把用户选的耗时区间带上
+    completeTaskWithMinutes: (id, minutes) => request('POST', `/api/tasks/${encodeURIComponent(id)}/complete`, { actualMinutes: minutes }),
     firstRunDone: () => request('POST', '/api/first-run'),
     openExternal: (url) => host('openExternal', url),
 

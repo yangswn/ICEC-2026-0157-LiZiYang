@@ -13,3 +13,4 @@ require('./detail-enrichment.test.js');
 require('./regression-1.6.1.test.js');
 require('./tray-menu.test.js');
 require('./regression-1.6.3.test.js');
+require('./estimate.test.js');
