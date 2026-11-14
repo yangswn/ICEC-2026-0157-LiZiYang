@@ -259,6 +259,10 @@ function normalizeTask(input, existing = null) {
   const source = ['manual', 'chaoxing'].includes(input.source) ? input.source : (base.source || 'manual');
   const offsets = normalizeOffsets(input.reminderOffsets ?? base.reminderOffsets);
 
+  // 截止时间是否真的被改过：月度重复要把「锚点日」和「起始月」一起跟着走，
+  // 两处判断必须用同一个值，否则容易出现只改了一半的情况（1.6.1 / 1.6.3 各踩过一次）。
+  const dueChanged = Boolean(base.dueAt) && due.toISOString() !== base.dueAt;
+
   const task = {
     id: base.id || uid('t_'),
     title,
@@ -298,18 +302,25 @@ function normalizeTask(input, existing = null) {
 
       // 月度重复：dueAt 真的变了，锚点日必须跟着走，
       // 否则用户把 15 号改成 20 号，下一期又按旧的 15 号生成。
-      const dueChanged = Boolean(base.dueAt) && due.toISOString() !== base.dueAt;
-      const effectiveRecurrence = RECURRENCES.has(input.recurrence)
-        ? input.recurrence
-        : (base.recurrence || 'none');
-      if (dueChanged && effectiveRecurrence === 'monthly') {
+      if (dueChanged && recurrence === 'monthly') {
         return Math.max(1, Math.min(31, fallback));
       }
 
       return Math.max(1, Math.min(31, baseDay));
     })(),
-    seriesStartAt: cleanText(input.seriesStartAt ?? base.seriesStartAt, 40)
-      || (recurrence !== 'none' ? due.toISOString() : ''),
+    seriesStartAt: (() => {
+      const explicit = cleanText(input.seriesStartAt, 40);
+      if (explicit) return explicit;   // 调用方显式给了就以它为准
+
+      // 月度重复改了截止日：理解为「从这一期重新按月往后排」。
+      // 不重置的话 seriesStartAt 还停在最早的月份，nextOccurrence 里
+      // monthDiff 会算成负数，Math.max(0, …) 把它夹成 0，
+      // 于是从旧月份数一个月 —— 改到 9 月、下一期却是 12 月。
+      if (dueChanged && recurrence === 'monthly') return due.toISOString();
+
+      return cleanText(base.seriesStartAt, 40)
+        || (recurrence !== 'none' ? due.toISOString() : '');
+    })(),
     source,
     sourceKey: cleanText(input.sourceKey ?? base.sourceKey, 160) || '',
     sourceUrl: cleanText(input.sourceUrl ?? base.sourceUrl, 600) || '',
@@ -619,6 +630,10 @@ class Store {
     // 关键：patch 没显式给 recurrenceDay 时不要从 existing 带过来，
     // 否则 normalizeTask 会把它当成“调用方指定”，月度重复改日期就改不动锚点。
     if (!Object.prototype.hasOwnProperty.call(patch, 'recurrenceDay')) delete merged.recurrenceDay;
+    // 同一个坑：seriesStartAt 是「从哪个月开始按月排」。从 existing 带过去的话，
+    // 改期时 normalizeTask 会以为调用方指定了起始月，于是仍从旧月份数下一期 ——
+    // 把 11 月改成 9 月，下一期会算成 12 月。
+    if (!Object.prototype.hasOwnProperty.call(patch, 'seriesStartAt')) delete merged.seriesStartAt;
     const updated = normalizeTask(merged, existing);
     if (patch.status === 'done' && existing.status !== 'done') {
       updated.completedAt = nowIso();
