@@ -993,3 +993,22 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid #d8d2c4; border
 
 /* 模型细化时底部的小字进度 */
 .tonight-refine { margin-top: 10px; font-size: 11.5px; color: var(--muted-2); }
+
+/* 开关下面的模型状态：常驻一行小字，代替弹窗报错 */
+.model-estimate-row { align-items: flex-start; }
+.model-estimate-row .model-status { margin-top: 7px; font-size: 12px; line-height: 1.5; }
+.model-status.checking { color: var(--muted-2); }
+.model-status.ready { color: #2f7a5c; }
+.model-status.missing { color: #8a6b2f; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.model-status-sep { color: var(--muted-2); }
+.model-status-copy {
+  border: 1px solid #e0d3b4;
+  background: #fbf6ea;
+  color: #6f5722;
+  font-size: 11.5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .16s ease;
+}
+.model-status-copy:hover { background: #f4ead2; border-color: #d3bf94; }

@@ -15,3 +15,4 @@ require('./tray-menu.test.js');
 require('./regression-1.6.3.test.js');
 require('./estimate.test.js');
 require('./model-optin.test.js');
+require('./model-toggle-ux.test.js');

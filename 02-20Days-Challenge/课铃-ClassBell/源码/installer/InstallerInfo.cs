@@ -6,6 +6,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyProduct("课铃 ClassBell")]
 [assembly: AssemblyCompany("ClassBell")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 ClassBell")]
-[assembly: AssemblyVersion("1.8.0.0")]
-[assembly: AssemblyFileVersion("1.8.0.0")]
+[assembly: AssemblyVersion("1.8.1.0")]
+[assembly: AssemblyFileVersion("1.8.1.0")]
 [assembly: ComVisible(false)]

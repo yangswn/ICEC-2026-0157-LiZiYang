@@ -207,12 +207,16 @@
     estimateAll: () => request('GET', '/api/estimate'),
     // 可选精估：只有设置里打开开关才调；问的是本机 1.5b 小模型
     refineEstimates: () => request('GET', '/api/estimate/refine'),
+    // 查询 1.5b 在不在：设置页那行状态用它，失败了也只是显示未检测到
+    modelStatus: () => request('GET', '/api/estimate/model'),
     // 点「开始做」记开工时间，完成时才知道真实耗时
     startTask: (id) => request('POST', `/api/tasks/${encodeURIComponent(id)}/start`, {}),
     // 没点开始做的任务，完成时把用户选的耗时区间带上
     completeTaskWithMinutes: (id, minutes) => request('POST', `/api/tasks/${encodeURIComponent(id)}/complete`, { actualMinutes: minutes }),
     firstRunDone: () => request('POST', '/api/first-run'),
     openExternal: (url) => host('openExternal', url),
+    // 走宿主剪贴板：WebView2 里 navigator.clipboard 常被拒
+    copyText: (text) => host('copyText', text),
 
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {};

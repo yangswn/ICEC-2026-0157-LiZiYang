@@ -782,6 +782,19 @@ namespace ClassBell
                         OpenExternal(Arg(args, 0));
                         Respond(id, true, null);
                         break;
+                    // 复制文本到剪贴板。页面的 navigator.clipboard 在 WebView2 里
+                    // 依赖用户激活与权限授予，实测会被拒；桌面程序直接调系统剪贴板最稳。
+                    case "copyText":
+                        try
+                        {
+                            Clipboard.SetText(Arg(args, 0) ?? string.Empty);
+                            Respond(id, true, null);
+                        }
+                        catch (Exception copyError)
+                        {
+                            Respond(id, false, new Dictionary<string, object> { { "message", copyError.Message } });
+                        }
+                        break;
                     default:
                         Respond(id, false, new Dictionary<string, object> { { "message", "未知的本机操作" } });
                         break;

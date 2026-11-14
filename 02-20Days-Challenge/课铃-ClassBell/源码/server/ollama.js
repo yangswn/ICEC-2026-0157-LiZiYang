@@ -160,9 +160,31 @@ async function isAvailable() {
   }
 }
 
+/**
+ * 查询模型状态，给设置页那行静态文字用。
+ * 只查 /api/tags，不加载模型 —— 这是纯展示，不能拖慢界面。
+ * @returns {Promise<{available:boolean, model:string, installed:string[], pullCommand:string}>}
+ */
+async function status() {
+  const pullCommand = `ollama pull ${MODEL}`;
+  try {
+    const names = await listModels();
+    return {
+      available: hasModel(names),
+      model: MODEL,
+      installed: names,
+      pullCommand
+    };
+  } catch (_) {
+    // Ollama 没跑（用户没装或没启动）也走这条：状态行显示未检测到，不报错
+    return { available: false, model: MODEL, installed: [], pullCommand };
+  }
+}
+
 module.exports = {
   askModel,
   isAvailable,
+  status,
   listModels,
   hasModel,
   buildPrompt,

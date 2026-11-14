@@ -557,6 +557,12 @@ async function handleApi(req, res) {
     });
   }
 
+  if (p === '/api/estimate/model' && method === 'GET') {
+    // 纯查询：给设置页显示「已就绪 / 未检测到」，不加载模型、不报错
+    const info = await ollama.status();
+    return json(res, 200, info);
+  }
+
   if (p === '/api/estimate/refine' && method === 'GET') {
     // 开关没开就直接说清楚，免得前端白等 30 秒
     if (!store.state.settings.useModelEstimate) {

@@ -29,7 +29,9 @@ const App = {
   lastPageView: '',
   logsErrorOnly: false,
   noticeOpen: new Set(),
-  mistakeFilter: 'all'
+  mistakeFilter: 'all',
+  // 1.5b 在不在：设置页状态行用它，null 表示还没查过
+  modelStatus: null
 };
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -581,14 +583,14 @@ async function refineTonight() {
   try {
     const result = await api.refineEstimates();
     if (!result || result.ok === false) {
-      // 没有 1.5b 是最常见的情况：告诉用户去 pull，别自己换成 7b 把电脑搞卡
-      if (result && result.code === 'MODEL_NOT_READY') {
-        toast(result.message || '没有找到 qwen2.5:1.5b，请先 ollama pull qwen2.5:1.5b', 'error', 7000);
-      } else if (result && result.code === 'MODEL_DISABLED') {
-        // 开关关掉了，不用提示
-      } else {
-        toast((result && result.message) || '模型这次没估出来，先用按题量算的结果。', 'info', 5000);
+      // 没装模型是「用户还没准备好」，不是错误：
+      // 他会在设置页那行状态里看到原因，正常点预算的路径上不该弹红色提示。
+      if (result && (result.code === 'MODEL_NOT_READY' || result.code === 'MODEL_DISABLED')) {
+        renderModelStatus();
+        return;
       }
+      // 其余失败（超时、输出解析不了）也不弹错了，规则结果本来就已经显示着
+      renderModelStatus();
       return;
     }
 
@@ -642,6 +644,90 @@ function renderTonightRefine() {
   }
   el.hidden = false;
   el.textContent = `正在用本机模型细化（${Math.min(state.done, state.total)}/${state.total}）`;
+}
+
+/**
+ * 渲染开关下面那行状态。
+ * 开关关着 → 整行隐藏；开着 → 显示已就绪或未检测到（带「复制安装命令」）。
+ * 这里不弹 toast：状态是常驻信息，想看看得见就行。
+ */
+async function renderModelStatus() {
+  const el = $('#model-estimate-status');
+  if (!el) return;
+
+  const enabled = Boolean(App.state && App.state.settings && App.state.settings.useModelEstimate);
+  if (!enabled) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+
+  el.hidden = false;
+
+  // 缓存 10 秒：同一页反复渲染不重复请求；用户装完模型回来又能看到最新状态
+  const stale = !App.modelStatus || Date.now() - (App.modelStatus.checkedAt || 0) > 10000;
+  if (stale) {
+    el.className = 'model-status checking';
+    el.textContent = '正在检查本机模型…';
+    try {
+      const info = await api.modelStatus();
+      App.modelStatus = { ...info, checkedAt: Date.now() };
+    } catch (_) {
+      App.modelStatus = { available: false, model: 'qwen2.5:1.5b', pullCommand: 'ollama pull qwen2.5:1.5b', checkedAt: Date.now() };
+    }
+  }
+
+  const info = App.modelStatus || {};
+  const model = info.model || 'qwen2.5:1.5b';
+  if (info.available) {
+    el.className = 'model-status ready';
+    el.textContent = `✓ 已就绪（${model}）`;
+    return;
+  }
+
+  el.className = 'model-status missing';
+  el.innerHTML = `<span>⚠ 未检测到 ${esc(model)}</span>`
+    + '<span class="model-status-sep">·</span>'
+    + '<button class="model-status-copy" id="btn-copy-pull">复制安装命令</button>';
+}
+
+/**
+ * 复制 ollama pull 命令。
+ * 优先 navigator.clipboard（127.0.0.1 算安全上下文），失败退回到临时 textarea。
+ */
+async function copyPullCommand() {
+  const command = (App.modelStatus && App.modelStatus.pullCommand) || 'ollama pull qwen2.5:1.5b';
+  let ok = false;
+
+  // 先走宿主剪贴板（桌面程序最稳），失败再退回浏览器 API
+  try {
+    await api.copyText(command);
+    ok = true;
+  } catch (_) { ok = false; }
+
+  if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(command);
+      ok = true;
+    } catch (_) { ok = false; }
+  }
+
+  if (!ok) {
+    // 老路径：临时 textarea + execCommand，WebView2 里也能用
+    try {
+      const area = document.createElement('textarea');
+      area.value = command;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      ok = document.execCommand('copy');
+      area.remove();
+    } catch (_) { ok = false; }
+  }
+
+  if (ok) toast('已复制，粘到终端里执行。', 'success', 3200);
+  else toast(`复制失败，请手动输入：${command}`, 'info', 6000);
 }
 
 function setTonightBudget(minutes) {
@@ -1101,6 +1187,8 @@ function renderSettings() {
   setCheck('#set-auto-sync', s.autoSync);
   setCheck('#set-auto-add', s.autoAddFromChaoxing);
   setCheck('#set-model-estimate', Boolean(s.useModelEstimate));
+  // 开关下面那行状态（异步查 /api/tags，不阻塞渲染）
+  renderModelStatus();
   const interval = $('#set-sync-interval');
   if (interval && document.activeElement !== interval) interval.value = String(s.autoSyncIntervalMin || 30);
   $('#quiet-row').hidden = !(s.quietHours && s.quietHours.enabled);
@@ -2102,6 +2190,12 @@ function bindEvents() {
 
   $$('.nav-item').forEach((item) => item.addEventListener('click', () => setPage(item.dataset.page)));
   document.addEventListener('click', (event) => {
+    const copyBtn = event.target.closest('#btn-copy-pull');
+    if (copyBtn) {
+      event.preventDefault();
+      copyPullCommand();
+      return;
+    }
     const budgetBtn = event.target.closest('#tonight-budget .seg');
     if (budgetBtn) {
       event.preventDefault();
@@ -2282,15 +2376,18 @@ function bindEvents() {
   $('#set-close-tray').addEventListener('change', (e) => updateSetting({ closeToTray: e.target.checked }));
   $('#set-auto-sync').addEventListener('change', (e) => updateSetting({ autoSync: e.target.checked }));
   $('#set-auto-add').addEventListener('change', (e) => updateSetting({ autoAddFromChaoxing: e.target.checked }));
-  // 打开时才去问模型；关掉后立刻回到规则数字，不再发任何请求到 11434
+  // 开关只存设置、刷状态行，不弹任何 toast ——
+  // 开关自己变绿已经是反馈，再弹一句「已开启」只是噪音。
   $('#set-model-estimate').addEventListener('change', async (e) => {
     const on = e.target.checked;
     await updateSetting({ useModelEstimate: on });
+    // 用户刚拨完，状态必须是当下的：清掉缓存再查
+    App.modelStatus = null;
+    renderModelStatus();
     if (on) {
-      toast('已开启。估时会先用规则，再用本机模型逐条细化。', 'info', 4200);
+      // 装了模型就顺手细化一次；没装则 refineTonight 会静默跳过
       refineTonight();
     } else {
-      toast('已关闭模型估时，之后只按题量算。', 'success', 3000);
       App.tonightRefine = null;
       renderTonight();
     }
