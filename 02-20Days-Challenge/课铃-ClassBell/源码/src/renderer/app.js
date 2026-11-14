@@ -1303,6 +1303,25 @@ async function saveTask(event) {
     sourceKey: $('#task-source-key').value || '',
     sourceUrl: $('#task-source-url').value || ''
   };
+  // 月度重复任务改日期：锚点日会跟着改，之后每一期都用新日子，
+  // 所以先把后果说清楚，避免用户以为只改了这一条。
+  if (App.editingId) {
+    const current = (App.state.tasks || []).find((t) => t.id === App.editingId);
+    const monthly = current && current.recurrence === 'monthly';
+    const dueChanged = current && payload.dueAt && payload.dueAt !== current.dueAt;
+    if (monthly && dueChanged) {
+      const day = new Date(payload.dueAt).getDate();
+      const ok = await confirmAction({
+        title: '改的是每月重复的日期',
+        text: `这条任务每月重复。保存后之后每一次都会是每月 ${day} 号；只想改这一次的话，请把重复设为“不重复”再另建一条。`,
+        okText: '应用于之后每一次',
+        danger: false,
+        icon: 'i-calendar'
+      });
+      if (!ok) return;
+    }
+  }
+
   try {
     if (App.editingId) {
       await api.updateTask(App.editingId, payload);

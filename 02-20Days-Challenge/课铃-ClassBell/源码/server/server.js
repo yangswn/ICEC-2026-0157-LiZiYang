@@ -116,6 +116,21 @@ async function readJson(req) {
   return JSON.parse(text);
 }
 
+/**
+ * 写接口专用：body 必须是普通 JSON 对象。
+ * null / 数组 / 字符串 / 数字一律 400 INVALID_BODY，
+ * 避免下游 store 读字段时抛 “Cannot read properties of null”。
+ */
+async function readJsonObject(req) {
+  const body = await readJson(req);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const error = new Error('请求内容必须是 JSON 对象');
+    error.code = 'INVALID_BODY';
+    throw error;
+  }
+  return body;
+}
+
 /* Only the local host may talk to this service. Binding to 127.0.0.1 alone does
    not stop DNS rebinding: a hostile page can resolve its own domain to loopback
    and reach these APIs with a foreign Host header. */
@@ -402,7 +417,7 @@ async function handleApi(req, res) {
   }
 
   if (p === '/api/tasks' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const task = store.addTask(body);
     log('task_added', {
       meta: {
@@ -419,7 +434,7 @@ async function handleApi(req, res) {
     const id = decodeURIComponent(taskMatch[1]);
     if (method === 'PATCH' || method === 'PUT') {
       // manual=true：用户手工改期要打 dueAtManual，之后同步/补全都不许覆盖
-      const task = store.updateTask(id, await readJson(req), { manual: true });
+      const task = store.updateTask(id, await readJsonObject(req), { manual: true });
       log('task_updated', { meta: { category: task.category, status: task.status } });
       broadcastState();
       scheduler.check();
@@ -446,7 +461,7 @@ async function handleApi(req, res) {
   }
 
   if (p === '/api/settings' && method === 'POST') {
-    const patch = await readJson(req);
+    const patch = await readJsonObject(req);
     const settings = store.updateSettings(patch);
     log('settings_updated', { meta: { keys: Object.keys(patch) } });
     if ('logMirrorDir' in patch) telemetry.setMirrorDir(settings.logMirrorDir);
@@ -455,7 +470,7 @@ async function handleApi(req, res) {
   }
 
   if (p === '/api/log/page' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     log('page_view', { meta: { page: String(body.page || '').slice(0, 30) } });
     return json(res, 200, { ok: true });
   }
@@ -469,7 +484,7 @@ async function handleApi(req, res) {
     return json(res, 200, { ...(await chaoxing.getAuthStatus()), loginUrl: LOGIN_URL, homeUrl: HOME_URL });
   }
   if (p === '/api/cx/cookies' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     chaoxing.setCookies(body.cookies || []);
     try {
       fs.writeFileSync(path.join(dataDir, 'cx-cookies.json'), JSON.stringify(chaoxing.exportCookies()), 'utf8');
@@ -504,7 +519,7 @@ async function handleApi(req, res) {
     });
   }
   if (p === '/api/candidates/dismiss' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     store.dismissCandidate(String(body.id || ''));
     broadcastState();
     return json(res, 200, { ok: true });
@@ -513,7 +528,7 @@ async function handleApi(req, res) {
   /* ------------------------------------------------------------ notices */
 
   if (p === '/api/notices' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const result = store.addNotice({ ...body, source: body.source || 'manual' });
     log('notice_added', { meta: { kind: result.notice.kind, created: result.created } });
     broadcastState();
@@ -591,7 +606,7 @@ async function handleApi(req, res) {
   if (noticeMatch) {
     const id = decodeURIComponent(noticeMatch[1]);
     if (method === 'PATCH' || method === 'PUT') {
-      const body = await readJson(req);
+      const body = await readJsonObject(req);
       const notice = store.markNotice(id, body.read !== false);
       broadcastState();
       return json(res, 200, notice);
@@ -606,7 +621,7 @@ async function handleApi(req, res) {
   /* --------------------------------------------------------------- gear */
 
   if (p === '/api/gear' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const item = store.addGear(body);
     log('gear_added', { meta: { has_due: Boolean(item.dueAt) } });
     broadcastState();
@@ -616,14 +631,14 @@ async function handleApi(req, res) {
   if (gearMatch) {
     const id = decodeURIComponent(gearMatch[1]);
     if (method === 'POST' && gearMatch[2] === 'return') {
-      const body = await readJson(req).catch(() => ({}));
+      const body = await readJsonObject(req).catch(() => ({}));
       const item = store.returnGear(id, body || {});
       log('gear_returned', { meta: { condition: item.condition || '' } });
       broadcastState();
       return json(res, 200, item);
     }
     if (method === 'PATCH' || method === 'PUT') {
-      const item = store.updateGear(id, await readJson(req));
+      const item = store.updateGear(id, await readJsonObject(req));
       broadcastState();
       return json(res, 200, item);
     }
@@ -637,14 +652,14 @@ async function handleApi(req, res) {
   /* ----------------------------------------------------------- mistakes */
 
   if (p === '/api/mistakes' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const result = store.addMistake({ ...body, source: body.source === 'chaoxing' ? 'chaoxing' : 'manual' });
     log('mistake_added', { meta: { course: result.mistake.course, created: result.created } });
     broadcastState();
     return json(res, 200, result.mistake);
   }
   if (p === '/api/mistakes/inspect' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const url = String(body.url || '');
     let target = null;
     try { target = new URL(url); } catch (_) { target = null; }
@@ -687,7 +702,7 @@ async function handleApi(req, res) {
     }
   }
   if (p === '/api/mistakes/import-text' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const text = String(body.text || '').slice(0, 200000);
     const url = String(body.url || '');
     let title = String(body.title || '');
@@ -765,7 +780,7 @@ async function handleApi(req, res) {
   if (mistakeMatch) {
     const id = decodeURIComponent(mistakeMatch[1]);
     if (method === 'PATCH' || method === 'PUT') {
-      const item = store.updateMistake(id, await readJson(req));
+      const item = store.updateMistake(id, await readJsonObject(req));
       broadcastState();
       return json(res, 200, item);
     }
@@ -787,7 +802,7 @@ async function handleApi(req, res) {
     return json(res, 200, { items });
   }
   if (p === '/api/reminders/action' && method === 'POST') {
-    const body = await readJson(req);
+    const body = await readJsonObject(req);
     const { action, taskId, minutes } = body;
     const task = taskId ? store.state.tasks.find((t) => t.id === taskId) : null;
     let latency = 0;
@@ -844,7 +859,9 @@ const API_STATUS = {
   TASK_NOT_FOUND: 404, NOTICE_NOT_FOUND: 404, GEAR_NOT_FOUND: 404, MISTAKE_NOT_FOUND: 404,
   TASK_TITLE_REQUIRED: 422, TASK_DUE_INVALID: 422, MISTAKE_QUESTION_REQUIRED: 422,
   GEAR_NAME_REQUIRED: 422, NOTICE_TITLE_REQUIRED: 422, IMPORT_INVALID_FORMAT: 422,
-  IMPORT_INVALID_JSON: 422, TASK_LIMIT_REACHED: 409
+  IMPORT_INVALID_JSON: 422, TASK_LIMIT_REACHED: 409,
+  // 1.6.1：请求体/字段校验类错误统一 400（不是 500）
+  INVALID_BODY: 400, INVALID_INPUT: 400, INVALID_DATE: 400
 };
 
 const server = http.createServer((req, res) => {

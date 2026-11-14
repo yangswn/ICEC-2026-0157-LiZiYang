@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.6.1 — 2026-11-14
+
+修三个缺陷（来自第二次源码复审）。
+
+### Fixed
+
+1. **非法日期被静默进位**：`parseDate` 只判断 `isNaN`，而 JS 对 `2026-02-30` 会静默变成 `2026-03-02`（只有月份 >12 才 Invalid）。现在对 `YYYY-MM-DD…` 形式用 `Date.UTC` 重建并回读年月日比对；超界即抛 `INVALID_DATE`，路由返回 400 +「2026-02-30T10:00:00」不是有效日期，**不落库**。时间戳/ISO datetime 等格式行为不变。
+2. **`POST /api/tasks` body 为 null 直接 500**：新增 `readJsonObject()`，**所有写接口**（POST/PUT/PATCH，共 17 处调用）统一校验 body 必须是普通对象，否则 400 `INVALID_BODY`；`store.addTask()` 也加了输入守卫（`INVALID_INPUT`），两层都不再抛 `Cannot read properties of null`。
+3. **月度重复任务改日期后下一期又跳回去**：`recurrenceDay` 在未显式传入时沿用旧值，用户把 15 号改成 20 号，锚点日没跟着改。现在 `updateTask` 中 `dueAt` 真的变化且任务为 `monthly` 时，锚点日同步为新日号；只改标题/备注/状态时锚点日保持不变。前端在编辑月度重复任务并改日期时弹出确认：「保存后之后每一次都会是每月 N 号」。
+
+### Verified（真实接口）
+
+- `POST /api/tasks` 传 `null` / `[]` / `"abc"` / `42` → 全部 **400 INVALID_BODY**（不再 500）；
+- `dueAt=2026-02-30T10:00:00` → **400 INVALID_DATE**，提示「2026-02-30T10:00:00」不是有效日期，任务数保持 34 未落库；
+- `dueAt=2026-02-28` → 200，正常写入；
+- monthly 15 号 → 改 20 号（`recurrenceDay=20`）→ 完成 → 下一期 `2026-12-20`；
+- 只改标题 → `recurrenceDay` 仍 15 → 下一期 `2026-12-15`。
 ## 1.6.0 — 2026-11-14
 
 同步后自动补全作业的「截止时间」与「题目数量」（数据来自作业详情页）。

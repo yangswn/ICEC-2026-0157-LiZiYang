@@ -10,3 +10,4 @@ require('./single-instance.test.js');
 require('./upgrade-preserve.test.js');
 require('./overwrite-install.test.js');
 require('./detail-enrichment.test.js');
+require('./regression-1.6.1.test.js');

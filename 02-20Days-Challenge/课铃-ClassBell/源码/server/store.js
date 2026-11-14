@@ -34,8 +34,56 @@ function safeInt(value, fallback = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 }
 
+/**
+ * 严格日期校验的异常：带 code，路由层据此返回 400 + 人话提示。
+ */
+class InvalidDateError extends Error {
+  constructor(value) {
+    super(`「${String(value)}」不是有效日期`);
+    this.code = 'INVALID_DATE';
+    this.value = String(value);
+  }
+}
+
+/**
+ * 取出 "YYYY-MM-DD" 或 "YYYY-MM-DDTHH:mm…" 的年月日，并做超界校验。
+ * JS 的 new Date() 对 2026-02-30 会静默进位成 3-02，这里用 Date.UTC 重建再回读比对。
+ * @returns {{year:number,month:number,day:number}|null} null 表示“不是这种格式”
+ */
+function strictDateParts(value) {
+  const text = String(value).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(text);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  const same = probe.getUTCFullYear() === year
+    && probe.getUTCMonth() === month - 1
+    && probe.getUTCDate() === day;
+  return same ? { year, month, day } : { year, month, day, invalid: true };
+}
+
+/**
+ * 宽松解析：解析不了就返回 null（读路径用，不能因为历史数据脏就崩）。
+ * 但“形如 YYYY-MM-DD 却超界”也算解析不了 —— 不会静默进位。
+ */
 function parseDate(value) {
   if (!value) return null;
+  const parts = strictDateParts(value);
+  if (parts && parts.invalid) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * 严格解析：写路径用。超界日期抛 InvalidDateError，
+ * 让用户看到「2026-02-30 不是有效日期」而不是悄悄存成 3 月 2 日。
+ */
+function parseDateStrict(value) {
+  if (!value) return null;
+  const parts = strictDateParts(value);
+  if (parts && parts.invalid) throw new InvalidDateError(value);
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -199,7 +247,7 @@ function normalizeTask(input, existing = null) {
   if (!title) throw new Error('TASK_TITLE_REQUIRED');
 
   const noDeadline = Boolean(input.noDeadline ?? base.noDeadline);
-  const due = noDeadline ? new Date(NO_DEADLINE_ISO) : parseDate(input.dueAt ?? base.dueAt);
+  const due = noDeadline ? new Date(NO_DEADLINE_ISO) : parseDateStrict(input.dueAt ?? base.dueAt);
   if (!due || Number.isNaN(due.getTime())) throw new Error('TASK_DUE_INVALID');
 
   const category = CATEGORIES.has(input.category) ? input.category : (base.category || 'homework');
@@ -237,8 +285,28 @@ function normalizeTask(input, existing = null) {
     // seriesStartAt 是系列首期，用于避免“1/31 → 2/28 → 3/28”的日期漂移。
     recurrenceDay: (() => {
       const fallback = due.getDate();
-      const raw = safeInt(input.recurrenceDay ?? base.recurrenceDay, fallback);
-      return Math.max(1, Math.min(31, raw || fallback));
+
+      // 显式传了锚点日就用它（补全/导入等场景）
+      const explicit = input.recurrenceDay;
+      if (explicit !== undefined && explicit !== null && explicit !== '') {
+        const n = safeInt(explicit, fallback);
+        return Math.max(1, Math.min(31, n || fallback));
+      }
+
+      const baseDay = safeInt(base.recurrenceDay, 0);
+      if (!baseDay) return Math.max(1, Math.min(31, fallback));
+
+      // 月度重复：dueAt 真的变了，锚点日必须跟着走，
+      // 否则用户把 15 号改成 20 号，下一期又按旧的 15 号生成。
+      const dueChanged = Boolean(base.dueAt) && due.toISOString() !== base.dueAt;
+      const effectiveRecurrence = RECURRENCES.has(input.recurrence)
+        ? input.recurrence
+        : (base.recurrence || 'none');
+      if (dueChanged && effectiveRecurrence === 'monthly') {
+        return Math.max(1, Math.min(31, fallback));
+      }
+
+      return Math.max(1, Math.min(31, baseDay));
     })(),
     seriesStartAt: cleanText(input.seriesStartAt ?? base.seriesStartAt, 40)
       || (recurrence !== 'none' ? due.toISOString() : ''),
@@ -496,6 +564,13 @@ class Store {
   }
 
   addTask(input) {
+    // body 可能是 null / 数组 / 字符串：必须在读字段之前挡住，
+    // 否则会抛 “Cannot read properties of null (reading 'source')”。
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      const error = new Error('任务内容必须是 JSON 对象');
+      error.code = 'INVALID_INPUT';
+      throw error;
+    }
     if (this.state.tasks.length >= MAX_TASKS) {
       throw new Error('TASK_LIMIT_REACHED');
     }
@@ -540,7 +615,11 @@ class Store {
       if (changed || existing.noDeadline) patch = { ...patch, dueAtManual: true };
     }
 
-    const updated = normalizeTask({ ...existing, ...patch, id: existing.id }, existing);
+    const merged = { ...existing, ...patch, id: existing.id };
+    // 关键：patch 没显式给 recurrenceDay 时不要从 existing 带过来，
+    // 否则 normalizeTask 会把它当成“调用方指定”，月度重复改日期就改不动锚点。
+    if (!Object.prototype.hasOwnProperty.call(patch, 'recurrenceDay')) delete merged.recurrenceDay;
+    const updated = normalizeTask(merged, existing);
     if (patch.status === 'done' && existing.status !== 'done') {
       updated.completedAt = nowIso();
       updated.completedBy = cleanText(patch.completedBy, 20) || 'user';
