@@ -382,12 +382,10 @@ async function ensureEstimates(tasks, { force = false } = {}) {
   if (!missing.length) return result;
 
   const finished = store.state.tasks.filter((t) => t.status === 'done');
-  const useModel = store.state.settings.useModelEstimate !== false;
+  // 这里永远不调模型：默认路径要 6 毫秒出结果，模型是可选的精估（/api/estimate/refine）
   const estimateMap = await estimate.estimateTasks(missing, {
     finished,
-    useModel,
-    // 模型失败会抛错，estimate.js 里整批回退到规则
-    askModel: useModel ? (batch) => ollama.askModel(batch) : null
+    useModel: false
   });
 
   for (const task of missing) {
@@ -421,6 +419,44 @@ function countBy(list, pick) {
   return out;
 }
 
+
+/**
+ * 可选精估：只给「规则已经算过、但用户打开了开关」的那批任务问模型。
+ *
+ * 结果不写进 estimateDay 缓存 —— 缓存记的是当天基准值（规则），
+ * 关掉开关之后应该还能回到规则数字，而不是留住模型值。
+ */
+async function refineEstimates(tasks) {
+  const targets = (tasks || []).slice(0, ollama.MAX_TASKS);
+  if (!targets.length) return { ok: true, estimates: {}, model: ollama.MODEL };
+
+  try {
+    const map = await ollama.askModel(targets);
+    const estimates = {};
+    for (const [id, minutes] of map) {
+      const safe = Number(minutes);
+      // 1~180 之外当它没估 —— 夹到 180 等于把离谱当合理
+      if (!Number.isFinite(safe) || safe <= 0 || safe > 180) continue;
+      estimates[id] = { minutes: Math.max(15, Math.round(safe)), source: 'model' };
+    }
+    log('estimate_refined', {
+      meta: { asked: targets.length, got: Object.keys(estimates).length, model: ollama.MODEL }
+    });
+    return { ok: true, estimates, model: ollama.MODEL };
+  } catch (error) {
+    if (error && error.code === 'MODEL_NOT_READY') {
+      return {
+        ok: false,
+        code: 'MODEL_NOT_READY',
+        message: error.message,
+        installed: error.installed || [],
+        estimates: {}
+      };
+    }
+    log('estimate_refine_failed', { ok: false, error });
+    return { ok: false, code: 'MODEL_FAILED', message: '模型这次没估出来，先用按题量算的结果。', estimates: {} };
+  }
+}
 
 /* ------------------------------------------------------------------ reminders */
 
@@ -519,6 +555,17 @@ async function handleApi(req, res) {
       modelAvailable: Boolean(store.state.settings.useModelEstimate),
       estimates
     });
+  }
+
+  if (p === '/api/estimate/refine' && method === 'GET') {
+    // 开关没开就直接说清楚，免得前端白等 30 秒
+    if (!store.state.settings.useModelEstimate) {
+      return json(res, 200, { ok: false, code: 'MODEL_DISABLED', estimates: {} });
+    }
+    const pending = store.state.tasks.filter((t) => t.status === 'pending');
+    const result = await refineEstimates(pending);
+    broadcastState();
+    return json(res, 200, result);
   }
 
   if (p === '/api/tonight' && method === 'GET') {

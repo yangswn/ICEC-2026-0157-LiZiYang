@@ -102,8 +102,9 @@ function defaultSettings() {
     autoSyncIntervalMin: 30,
     autoAddFromChaoxing: true,
     reminderOffsets: [1440, 60, 10],
-    // 有本机 Ollama 就用它估时；没装的话 estimate.js 会自动回退到规则
-    useModelEstimate: true,
+    // 模型估时默认关闭：规则版 6 毫秒出结果，模型要 30 秒 + 5~6GB 内存，
+    // 而且题量明确时两者数字完全一致，不值得当默认路径。
+    useModelEstimate: false,
     sound: true,
     quietHours: { enabled: false, start: '23:00', end: '07:00' },
     logMirrorDir: '',

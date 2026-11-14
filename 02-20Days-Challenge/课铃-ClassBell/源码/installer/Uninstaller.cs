@@ -30,6 +30,8 @@ namespace ClassBell.Setup
             try
             {
                 DeleteShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "课铃 ClassBell.lnk"));
+                // 安装器写成功过公共桌面图标的话，卸载时要一并清掉，否则留下死链路
+                DeleteShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "课铃 ClassBell.lnk"));
                 string group = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "课铃 ClassBell");
                 DeleteShortcut(Path.Combine(group, "课铃 ClassBell.lnk"));
                 DeleteShortcut(Path.Combine(group, "卸载课铃.lnk"));

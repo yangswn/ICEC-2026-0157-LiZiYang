@@ -563,6 +563,87 @@ function renderTonight() {
     + `<div class="tonight-total">做完这 ${plan.items.length} 条，待办降到 ${plan.remainingAfter} 条</div>`;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 用本机 1.5b 逐条细化估时。
+ * 只有设置里打开了开关才会被调用；失败就停在规则数字上，不弹红色报错。
+ */
+async function refineTonight() {
+  if (!App.state || !App.state.settings.useModelEstimate) return;
+  if (App.tonightRefining) return;
+  if (!App.tonightBudget || !App.tonightPlan || !App.tonightPlan.items.length) return;
+
+  App.tonightRefining = true;
+  App.tonightRefine = { done: 0, total: App.tonightPlan.items.length };
+  renderTonightRefine();
+
+  try {
+    const result = await api.refineEstimates();
+    if (!result || result.ok === false) {
+      // 没有 1.5b 是最常见的情况：告诉用户去 pull，别自己换成 7b 把电脑搞卡
+      if (result && result.code === 'MODEL_NOT_READY') {
+        toast(result.message || '没有找到 qwen2.5:1.5b，请先 ollama pull qwen2.5:1.5b', 'error', 7000);
+      } else if (result && result.code === 'MODEL_DISABLED') {
+        // 开关关掉了，不用提示
+      } else {
+        toast((result && result.message) || '模型这次没估出来，先用按题量算的结果。', 'info', 5000);
+      }
+      return;
+    }
+
+    const entries = Object.entries(result.estimates || {});
+    for (const [id, hit] of entries) {
+      const item = App.tonightPlan.items.find((i) => i.id === id);
+      if (item) {
+        item.minutes = hit.minutes;
+        item.source = hit.source;
+        item.hint = ESTIMATE_HINT[hit.source] || '';
+      }
+      const row = document.querySelector(`.tonight-item[data-id="${id}"]`);
+      const minutesEl = row && row.querySelector('.tonight-minutes');
+      if (minutesEl) {
+        // 只改这一个数字节点，不重绘整块列表
+        minutesEl.textContent = minutesLabel(hit.minutes);
+        minutesEl.title = ESTIMATE_HINT[hit.source] || '';
+      }
+      App.tonightRefine.done += 1;
+      renderTonightRefine();
+      await sleep(60);
+    }
+
+    // 合计跟着变：本地重算一遍，避免整块重绘
+    const used = App.tonightPlan.items.reduce((sum, i) => sum + i.minutes, 0);
+    App.tonightPlan.used = used;
+    const sub = $('#tonight-sub');
+    if (sub) {
+      const label = TONIGHT_BUDGET_LABEL[App.tonightPlan.budget] || minutesLabel(App.tonightPlan.budget);
+      sub.textContent = `今晚 ${label}，这 ${App.tonightPlan.items.length} 条能做完（大概 ${minutesLabel(used)}）`;
+    }
+    toast('模型估完了。用不着可以关掉开关，省 1GB 内存。', 'success', 6000);
+  } catch (_) {
+    // 模型失败不影响已经显示出来的规则结果
+  } finally {
+    App.tonightRefining = false;
+    App.tonightRefine = null;
+    renderTonightRefine();
+  }
+}
+
+/** 底部那行小字：正在细化 3/11。没有在跑就藏起来。 */
+function renderTonightRefine() {
+  const el = $('#tonight-refine');
+  if (!el) return;
+  const state = App.tonightRefine;
+  if (!state) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  el.hidden = false;
+  el.textContent = `正在用本机模型细化（${Math.min(state.done, state.total)}/${state.total}）`;
+}
+
 function setTonightBudget(minutes) {
   App.tonightBudget = minutes;
   App.tonightLoading = true;
@@ -574,6 +655,8 @@ function setTonightBudget(minutes) {
     .finally(() => {
       App.tonightLoading = false;
       renderTonight();
+      // 规则结果已经出来了，再让模型慢慢把数字改准（开关关着时这里什么都不做）
+      refineTonight();
     });
 }
 
@@ -1017,6 +1100,7 @@ function renderSettings() {
   setCheck('#set-close-tray', s.closeToTray);
   setCheck('#set-auto-sync', s.autoSync);
   setCheck('#set-auto-add', s.autoAddFromChaoxing);
+  setCheck('#set-model-estimate', Boolean(s.useModelEstimate));
   const interval = $('#set-sync-interval');
   if (interval && document.activeElement !== interval) interval.value = String(s.autoSyncIntervalMin || 30);
   $('#quiet-row').hidden = !(s.quietHours && s.quietHours.enabled);
@@ -2198,6 +2282,19 @@ function bindEvents() {
   $('#set-close-tray').addEventListener('change', (e) => updateSetting({ closeToTray: e.target.checked }));
   $('#set-auto-sync').addEventListener('change', (e) => updateSetting({ autoSync: e.target.checked }));
   $('#set-auto-add').addEventListener('change', (e) => updateSetting({ autoAddFromChaoxing: e.target.checked }));
+  // 打开时才去问模型；关掉后立刻回到规则数字，不再发任何请求到 11434
+  $('#set-model-estimate').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    await updateSetting({ useModelEstimate: on });
+    if (on) {
+      toast('已开启。估时会先用规则，再用本机模型逐条细化。', 'info', 4200);
+      refineTonight();
+    } else {
+      toast('已关闭模型估时，之后只按题量算。', 'success', 3000);
+      App.tonightRefine = null;
+      renderTonight();
+    }
+  });
   $('#set-sync-interval').addEventListener('change', (e) => updateSetting({ autoSyncIntervalMin: Number(e.target.value) }));
 
   $('#reminder-offset-chips').addEventListener('change', () => {

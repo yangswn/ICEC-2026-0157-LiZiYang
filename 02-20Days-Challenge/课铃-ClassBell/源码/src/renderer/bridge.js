@@ -205,6 +205,8 @@
     tonightPlan: (budgetMinutes) => request('GET', `/api/tonight?minutes=${encodeURIComponent(budgetMinutes)}`),
     // 预热估时：首屏不等它，估完再刷新一次
     estimateAll: () => request('GET', '/api/estimate'),
+    // 可选精估：只有设置里打开开关才调；问的是本机 1.5b 小模型
+    refineEstimates: () => request('GET', '/api/estimate/refine'),
     // 点「开始做」记开工时间，完成时才知道真实耗时
     startTask: (id) => request('POST', `/api/tasks/${encodeURIComponent(id)}/start`, {}),
     // 没点开始做的任务，完成时把用户选的耗时区间带上

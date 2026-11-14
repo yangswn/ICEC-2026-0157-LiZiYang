@@ -15,7 +15,7 @@ namespace ClassBell.Setup
     internal static class Program
     {
         internal const string AppName = "课铃 ClassBell";
-        internal const string Version = "1.7.0";
+        internal const string Version = "1.8.0";
         internal const string Publisher = "ClassBell";
         internal const string ExeName = "ClassBell.exe";
         internal const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassBell";
@@ -36,7 +36,7 @@ namespace ClassBell.Setup
                 }
                 try
                 {
-                    InstallCore(dir, false, null);
+                    InstallCore(dir, false, null);   // 静默安装不看报告
                     Environment.Exit(0);
                 }
                 catch (Exception ex)
@@ -61,10 +61,21 @@ namespace ClassBell.Setup
             Application.Run(new SetupForm(initialDir));
         }
 
+        /// <summary>
+        /// 目标安装目录的默认值。优先级：注册表里上次装的位置（目录还在）→ 默认位置。
+        /// 必须先看注册表，否则每次升级都可能装到别处，快捷方式就指向旧版。
+        /// </summary>
         internal static string DefaultDir
         {
             get
             {
+                string previous = InstalledLocation();
+                if (!string.IsNullOrEmpty(previous))
+                {
+                    TryLog("previous install location: " + previous);
+                    return previous;
+                }
+
                 string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
                 string[] candidates =
@@ -87,6 +98,25 @@ namespace ClassBell.Setup
                 }
                 return candidates[0];
             }
+        }
+
+        /// <summary>
+        /// 读上次的安装位置。只有目录确实存在才采用 —— 用户手工删过目录时不能还往那儿装。
+        /// </summary>
+        internal static string InstalledLocation()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(UninstallKey))
+                {
+                    if (key == null) return null;
+                    string location = key.GetValue("InstallLocation") as string;
+                    if (string.IsNullOrWhiteSpace(location)) return null;
+                    location = location.Trim().Trim('"');
+                    return Directory.Exists(location) ? Path.GetFullPath(location) : null;
+                }
+            }
+            catch { return null; }
         }
 
         /// <summary>
@@ -181,7 +211,7 @@ namespace ClassBell.Setup
             }
         }
 
-        internal static void InstallCore(string dir, bool desktopShortcut, IProgress<int> progress)
+        internal static InstallReport InstallCore(string dir, bool desktopShortcut, IProgress<int> progress)
         {
             dir = Path.GetFullPath(dir);
             TryLog("Install to " + dir);
@@ -242,20 +272,14 @@ namespace ClassBell.Setup
             // 覆盖安装不删目录，data\ 本来还在；这里只补“确实缺失”的文件
             RestoreUserData(dir, preservedData);
 
-            try
-            {
-                if (desktopShortcut)
-                    CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), AppName + ".lnk"), exe, dir);
-
-                string group = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), AppName);
-                Directory.CreateDirectory(group);
-                CreateShortcut(Path.Combine(group, AppName + ".lnk"), exe, dir);
-                CreateShortcut(Path.Combine(group, "卸载课铃.lnk"), Path.Combine(dir, "Uninstall.exe"), dir);
-            }
-            catch (Exception ex)
-            {
-                TryLog("shortcut creation skipped: " + ex);
-            }
+            // 不管走哪条安装路径，都把桌面/开始菜单的快捷方式指回当前目录，
+            // 并逐个回读校验：装完还指着旧目录是最难查的那种问题。
+            // 桌面上已经有图标（哪怕指着旧目录）就必须修正它，
+            // 否则用户点图标打开的还是旧版本 —— 这正是这次要修的坑。
+            string desktopLink = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), AppName + ".lnk");
+            bool includeDesktop = desktopShortcut || File.Exists(desktopLink);
+            var shortcutIssues = RewriteShortcuts(dir, includeDesktop);
+            foreach (string issue in shortcutIssues) TryLog("shortcut issue: " + issue);
 
             try
             {
@@ -279,8 +303,25 @@ namespace ClassBell.Setup
             {
                 TryLog("registry entries skipped: " + ex);
             }
+            // 总是把最终目录写回注册表，下次升级才不会装到别处
+            try
+            {
+                using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey))
+                    key.SetValue("InstallLocation", dir);
+            }
+            catch (Exception ex) { TryLog("InstallLocation write failed: " + ex.Message); }
+
+            var others = FindOtherInstalls(dir);
+            foreach (string other in others) TryLog("other install found: " + other);
+
             if (progress != null) progress.Report(100);
             TryLog("Install complete");
+            return new InstallReport
+            {
+                Dir = dir,
+                ShortcutIssues = shortcutIssues,
+                OtherInstalls = others
+            };
         }
 
         internal static void LaunchApp(string dir)
@@ -750,7 +791,12 @@ namespace ClassBell.Setup
             }
         }
 
-        internal static void CreateShortcut(string path, string target, string workingDirectory)
+        /// <summary>
+        /// 写一个快捷方式并**回读校验** TargetPath。
+        /// 回读这一步是关键：光写不校验，出现过「快捷方式还指着旧目录」却没人发现的情况。
+        /// @returns null 表示成功，否则返回一句人话失败原因
+        /// </summary>
+        internal static string CreateShortcut(string path, string target, string workingDirectory)
         {
             try
             {
@@ -763,7 +809,143 @@ namespace ClassBell.Setup
                 shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { target + ",0" });
                 shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
             }
-            catch (Exception ex) { TryLog("shortcut error " + ex.Message); }
+            catch (Exception ex)
+            {
+                TryLog("shortcut write failed: " + path + " :: " + ex.Message);
+                return "写入失败：" + ex.Message;
+            }
+
+            string actual = ReadShortcutTarget(path);
+            if (string.IsNullOrEmpty(actual))
+            {
+                TryLog("shortcut readback empty: " + path);
+                return "写入后读不回目标路径";
+            }
+            if (!string.Equals(Path.GetFullPath(actual), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            {
+                TryLog("shortcut mismatch: " + path + " -> " + actual + " (want " + target + ")");
+                return "仍指向 " + actual;
+            }
+            TryLog("shortcut ok: " + path + " -> " + actual);
+            return null;
+        }
+
+        /// <summary>读快捷方式的 TargetPath（失败返回空串）。</summary>
+        /// <summary>这个目录能不能写（用来判断该不该往公共桌面写快捷方式）。</summary>
+        internal static bool CanWriteFolder(string folder)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(folder)) return false;
+                if (!Directory.Exists(folder)) return false;
+                string probe = Path.Combine(folder, ".classbell-write-" + Guid.NewGuid().ToString("N"));
+                File.WriteAllText(probe, "ok");
+                File.Delete(probe);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        internal static string ReadShortcutTarget(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return "";
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                object shell = Activator.CreateInstance(shellType);
+                object shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path });
+                object target = shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null);
+                return target == null ? "" : target.ToString();
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>
+        /// 重写所有课铃快捷方式到当前目录（桌面 / 公共桌面 / 开始菜单），
+        /// 并逐个回读校验。返回失败清单给完成页展示。
+        /// </summary>
+        internal static List<string> RewriteShortcuts(string dir, bool includeDesktop)
+        {
+            var issues = new List<string>();
+            string exe = Path.Combine(dir, ExeName);
+            string uninstaller = Path.Combine(dir, "Uninstall.exe");
+
+            var links = new List<KeyValuePair<string, string>>();
+            if (includeDesktop)
+            {
+                links.Add(new KeyValuePair<string, string>(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), AppName + ".lnk"), exe));
+                links.Add(new KeyValuePair<string, string>(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), AppName + ".lnk"), exe));
+            }
+
+            string group = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), AppName);
+            links.Add(new KeyValuePair<string, string>(Path.Combine(group, AppName + ".lnk"), exe));
+            links.Add(new KeyValuePair<string, string>(Path.Combine(group, "卸载课铃.lnk"), uninstaller));
+
+            foreach (var link in links)
+            {
+                string folder = Path.GetDirectoryName(link.Key);
+                // 公共桌面多半不可写（按用户安装不需要管理员权限）——
+                // 这不是错误，跳过就行，否则完成页天天挂着一条吓人的警告
+                if (!CanWriteFolder(folder))
+                {
+                    TryLog("shortcut folder not writable, skipped: " + folder);
+                    continue;
+                }
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    string error = CreateShortcut(link.Key, link.Value, dir);
+                    if (error != null) issues.Add(link.Key + "：" + error);
+                }
+                catch (Exception ex)
+                {
+                    TryLog("shortcut rewrite failed: " + link.Key + " :: " + ex.Message);
+                    issues.Add(link.Key + "：" + ex.Message);
+                }
+            }
+            return issues;
+        }
+
+        /// <summary>
+        /// 找别的目录里的课铃（不删，只提示）。
+        /// 机器上并存两份时，从旧快捷方式启动会打开旧版，用户会以为新版本没生效。
+        /// </summary>
+        internal static List<string> FindOtherInstalls(string currentDir)
+        {
+            var found = new List<string>();
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string current = Path.GetFullPath(currentDir).TrimEnd('\\');
+
+            var candidates = new[]
+            {
+                Path.Combine(local, "Programs", "ClassBell"),
+                Path.Combine(local, "ClassBell"),
+                Path.Combine(documents, "ClassBell"),
+                Path.Combine(programFiles, "ClassBell"),
+                Path.Combine(programFilesX86, "ClassBell"),
+                InstalledLocation()
+            };
+
+            foreach (string candidate in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(candidate)) continue;
+                try
+                {
+                    string full = Path.GetFullPath(candidate).TrimEnd('\\');
+                    if (string.Equals(full, current, StringComparison.OrdinalIgnoreCase)) continue;
+                    string exe = Path.Combine(full, ExeName);
+                    if (!File.Exists(exe)) continue;
+                    if (found.Contains(exe)) continue;
+                    string version = "";
+                    try { version = FileVersionInfo.GetVersionInfo(exe).FileVersion; } catch { }
+                    found.Add(exe + (string.IsNullOrEmpty(version) ? "" : "（版本 " + version + "）"));
+                }
+                catch { }
+            }
+            return found;
         }
 
         internal static void TryLog(string message)
@@ -775,6 +957,14 @@ namespace ClassBell.Setup
             }
             catch { }
         }
+    }
+
+    /// <summary>安装结果：完成页据此显示警告。</summary>
+    internal sealed class InstallReport
+    {
+        internal string Dir = "";
+        internal List<string> ShortcutIssues = new List<string>();
+        internal List<string> OtherInstalls = new List<string>();
     }
 
     /// <summary>安装器里用到的极简确认框：固定两个按钮，避免 MessageBox 的“是/否”语义不清。</summary>
@@ -858,6 +1048,7 @@ namespace ClassBell.Setup
         private readonly ProgressBar progress;
         private readonly Label status;
         private Panel finishPanel;
+        private Label finishWarnings;
         private bool busy;
 
         public SetupForm(string initialDir = null)
@@ -993,6 +1184,34 @@ namespace ClassBell.Setup
             finishPanel.Visible = false;
         }
 
+        /// <summary>
+        /// 把安装报告里的问题显示在完成页。
+        /// 快捷方式指向不对时必须让用户看见 —— 否则他点图标打开的是旧版本，
+        /// 会以为这次更新什么都没改（这事真的发生过，排查了一整轮）。
+        /// </summary>
+        private void ShowFinishWarnings(InstallReport report)
+        {
+            if (finishWarnings == null) return;
+            if (report == null) { finishWarnings.Visible = false; return; }
+
+            var lines = new List<string>();
+            if (report.ShortcutIssues != null && report.ShortcutIssues.Count > 0)
+            {
+                lines.Add("有快捷方式没能指向当前目录：" + report.ShortcutIssues[0]);
+                if (report.ShortcutIssues.Count > 1)
+                    lines.Add("（另有 " + (report.ShortcutIssues.Count - 1) + " 个同样的问题）");
+            }
+            if (report.OtherInstalls != null && report.OtherInstalls.Count > 0)
+            {
+                lines.Add("检测到另一份课铃：" + report.OtherInstalls[0]);
+                lines.Add("它可能是旧版本，建议卸载或删除，否则从旧快捷方式启动会打开旧版。");
+            }
+
+            if (lines.Count == 0) { finishWarnings.Visible = false; return; }
+            finishWarnings.Text = string.Join("\r\n", lines.ToArray());
+            finishWarnings.Visible = true;
+        }
+
         private Panel BuildFinishPanel()
         {
             var panel = new Panel { Location = new Point(0, 104), Size = new Size(680, 396), BackColor = Color.FromArgb(243, 240, 231), Visible = false };
@@ -1022,6 +1241,18 @@ namespace ClassBell.Setup
                 Size = new Size(450, 24),
                 TextAlign = ContentAlignment.MiddleCenter
             };
+            // 警告区：快捷方式指向不对、或者机器上还有另一份课铃时占一块位置
+            finishWarnings = new Label
+            {
+                Text = "",
+                ForeColor = Color.FromArgb(170, 66, 45),
+                Location = new Point(40, 244),
+                Size = new Size(600, 44),
+                AutoSize = false,
+                TextAlign = ContentAlignment.TopLeft,
+                Visible = false
+            };
+
             var launch = new CheckBox { Text = "立即启动课铃 ClassBell", Checked = true, Location = new Point(260, 268), AutoSize = true };
             var done = new Button
             {
@@ -1042,6 +1273,7 @@ namespace ClassBell.Setup
             panel.Controls.Add(mark);
             panel.Controls.Add(title);
             panel.Controls.Add(text);
+            panel.Controls.Add(finishWarnings);
             panel.Controls.Add(launch);
             panel.Controls.Add(done);
             return panel;
@@ -1068,8 +1300,9 @@ namespace ClassBell.Setup
             });
             try
             {
-                await Task.Run(() => Program.InstallCore(dir, desktopBox.Checked, progressReporter));
+                InstallReport report = await Task.Run(() => Program.InstallCore(dir, desktopBox.Checked, progressReporter));
                 status.Text = "安装完成";
+                ShowFinishWarnings(report);
                 finishPanel.Visible = true;
                 finishPanel.BringToFront();
             }
