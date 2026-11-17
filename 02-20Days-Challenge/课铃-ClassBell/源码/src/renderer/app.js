@@ -1185,6 +1185,8 @@ function renderSettings() {
   setCheck('#set-auto-launch', s.autoLaunch);
   setCheck('#set-close-tray', s.closeToTray);
   setCheck('#set-float-window', s.floatWindow !== false);
+  // 浮窗开关就是"启用功能"这个长期偏好；手动隐藏是本次运行内的临时状态，
+  // 两者分开，所以这里只按设置显示勾选。
   setCheck('#set-auto-sync', s.autoSync);
   setCheck('#set-auto-add', s.autoAddFromChaoxing);
   setCheck('#set-model-estimate', Boolean(s.useModelEstimate));

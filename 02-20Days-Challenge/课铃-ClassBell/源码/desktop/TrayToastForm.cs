@@ -23,11 +23,15 @@ namespace ClassBell
         private readonly int lifeMs;
         private int elapsed;
 
-        public TrayToastForm(int lifeMs = 6000)
+        /// <param name="lifeMs">显示多久，毫秒。</param>
+        /// <param name="heading">窗口标题 + 大字标题。</param>
+        /// <param name="detail">下面两行小字；null 表示用默认的"收进托盘"文案。</param>
+        public TrayToastForm(int lifeMs = 6000, string heading = null, string[] detail = null)
         {
             this.lifeMs = lifeMs;
+            string head = string.IsNullOrWhiteSpace(heading) ? "课铃仍在运行" : heading;
 
-            Text = "课铃仍在运行";
+            Text = head;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             ShowInTaskbar = false;
             TopMost = true;
@@ -39,7 +43,7 @@ namespace ClassBell
 
             var title = new Label
             {
-                Text = "课铃正在后台运行",
+                Text = head,
                 ForeColor = Color.FromArgb(247, 244, 233),
                 Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold),
                 AutoSize = false,
@@ -48,7 +52,7 @@ namespace ClassBell
 
             var line1 = new Label
             {
-                Text = "窗口已收进托盘（可能折叠在右下角的 ^ 里）",
+                Text = detail != null && detail.Length > 0 ? detail[0] : "窗口已收进托盘（可能折叠在右下角的 ^ 里）",
                 ForeColor = Color.FromArgb(203, 214, 204),
                 Font = new Font("Microsoft YaHei UI", 9F),
                 AutoSize = false,
@@ -57,7 +61,7 @@ namespace ClassBell
 
             var line2 = new Label
             {
-                Text = "Ctrl+Alt+B 找回窗口 · 右键托盘图标可退出",
+                Text = detail != null && detail.Length > 1 ? detail[1] : "Ctrl+Alt+B 找回窗口 · 右键托盘图标可退出",
                 ForeColor = Color.FromArgb(203, 214, 204),
                 Font = new Font("Microsoft YaHei UI", 9F),
                 AutoSize = false,

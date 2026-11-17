@@ -139,6 +139,10 @@
       if (Object.prototype.hasOwnProperty.call(patch, 'closeToTray')) {
         host('applyCloseToTray', Boolean(patch.closeToTray)).catch(() => {});
       }
+      // 浮窗开关同理：改完要马上出现/消失，用户不会等 30 秒
+      if (Object.prototype.hasOwnProperty.call(patch, 'floatWindow')) {
+        host('applyFloatWindow', Boolean(patch.floatWindow)).catch(() => {});
+      }
       return result;
     },
     chooseLogDir: () => host('chooseFolder'),

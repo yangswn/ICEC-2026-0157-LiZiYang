@@ -47,6 +47,11 @@ namespace ClassBell
         // 桌面浮窗：显示下一项任务，常驻桌面
         private FloatWindow floatWindow;
         private bool floatWindowEnabled = true;
+        // 用户手动点过「隐藏浮窗」：只在本次运行内有效，不写盘。
+        // 有它才能让「隐藏」是真的隐藏 —— 否则下一轮轮询又给显示回来。
+        private bool floatHiddenByUser;
+        // 托盘菜单里的「桌面浮窗」勾选项：托盘与设置页两个开关靠它同步状态
+        private ToolStripMenuItem floatTrayItem;
         // 浮窗位置缓存：轮询里读设置、拖动后回写，避免每次都从 JSON 里取
         private string floatWindowPos = "";
         // 最近一次 /api/state 的 settings 节点：浮窗按 uiScale 缩放要用
@@ -655,6 +660,13 @@ namespace ClassBell
                         floatWindowEnabled = wanted;
                         if (!wanted && floatWindow != null) floatWindow.Hide();
                     }
+                    // 设置页改的开关，托盘菜单要跟着变（两个入口必须互相同步）
+                    SyncFloatTrayCheck();
+
+                    // 位置也跟着设置走：拖动保存会写回去，这里读回来保持一致；
+                    // 少了这句，"重新打开浮窗"会落到默认角而不是记住的位置。
+                    string polledPos = HostApi.Str(settings, "floatWindowPos", "");
+                    if (!string.IsNullOrWhiteSpace(polledPos)) floatWindowPos = polledPos;
                 }
 
                 // 每 30 秒把「下一项任务」推给浮窗
@@ -671,7 +683,14 @@ namespace ClassBell
             if (floatWindow == null) return;
             try
             {
-                if (!floatWindowEnabled) { floatWindow.Hide(); return; }
+                // 用户手动隐藏过就别再自动弹 —— 否则「隐藏」这个按钮等于没有。
+                // 这是上一版最要命的 bug：只判 floatWindowEnabled，隐藏完 30 秒又冒出来。
+                if (!floatWindowEnabled || floatHiddenByUser)
+                {
+                    if (floatWindow.Visible) floatWindow.Hide();
+                    SyncFloatTrayCheck();
+                    return;
+                }
 
                 floatWindow.ApplyScale(CurrentUiScale());
                 var next = ComputeNextTask(stateNode);
@@ -869,6 +888,19 @@ namespace ClassBell
                         break;
                     // 设置页切换「关闭窗口时最小化到托盘」后，立刻更新宿主行为，
                     // 不必等 30 秒的状态轮询。
+                    // 设置页切「桌面浮窗」后立刻生效，不必等 30 秒轮询
+                    case "applyFloatWindow":
+                        bool floatOn = Convert.ToBoolean(args != null && args.Length > 0 ? args[0] : true);
+                        floatWindowEnabled = floatOn;
+                        if (floatOn) ShowFloatWindow(false);
+                        else
+                        {
+                            floatHiddenByUser = false;
+                            if (floatWindow != null) floatWindow.Hide();
+                        }
+                        SyncFloatTrayCheck();
+                        Respond(id, true, null);
+                        break;
                     case "applyCloseToTray":
                         closeToTray = Convert.ToBoolean(args != null && args.Length > 0 ? args[0] : true);
                         Respond(id, true, null);
@@ -1081,10 +1113,69 @@ namespace ClassBell
             return FloatWindow.DefaultPosition(size);
         }
 
-        /// <summary>设置页关掉浮窗时调用：只隐藏，不销毁 —— 重开就能回到原位。</summary>
+        /// <summary>
+        /// 浮窗右键「隐藏浮窗」。只隐藏、不销毁，下次打开回到原位；
+        /// 同时打上 floatHiddenByUser，避免 30 秒轮询又把它显示回来。
+        /// </summary>
         internal void HideFloatWindow()
         {
+            floatHiddenByUser = true;
             if (floatWindow != null) floatWindow.Hide();
+            SyncFloatTrayCheck();
+            // 不给提示的话，用户下次想找还是找不到
+            ShowFloatHiddenToast();
+        }
+
+        /// <summary>
+        /// 把浮窗重新显示出来（托盘勾选 / 设置页打开 / 双击托盘图标都走这里）。
+        /// 会清掉"本次不显示"的标记，并回到记住的位置。
+        /// </summary>
+        internal void ShowFloatWindow(bool persist = false)
+        {
+            floatHiddenByUser = false;
+            floatWindowEnabled = true;
+            if (floatWindow == null) CreateFloatWindow();
+            if (floatWindow == null) return;
+            floatWindow.ApplyScale(CurrentUiScale());
+            floatWindow.Location = ResolveFloatPosition(floatWindow.Size);
+            floatWindow.ShowWindowWithoutStealingFocus();
+            SyncFloatTrayCheck();
+            if (persist) PersistFloatWindowSetting(true);
+        }
+
+        /// <summary>把开关状态写回设置（托盘菜单改的，设置页要跟着变）。</summary>
+        private void PersistFloatWindowSetting(bool enabled)
+        {
+            try
+            {
+                var payload = new Dictionary<string, object> { { "floatWindow", enabled } };
+                HostApi.PostJsonAsync("/api/settings", payload).ContinueWith(t => { });
+            }
+            catch { }
+        }
+
+        /// <summary>托盘菜单的勾选状态要跟真实状态一致（托盘和设置页互相同步）。</summary>
+        private void SyncFloatTrayCheck()
+        {
+            if (floatTrayItem == null) return;
+            floatTrayItem.Checked = floatWindowEnabled && !floatHiddenByUser;
+        }
+
+        /// <summary>隐藏后提示一句怎么找回。4 秒后自己消失，不打扰。</summary>
+        private void ShowFloatHiddenToast()
+        {
+            try
+            {
+                // 专门写清楚"去哪儿找回来"：不提示的话，用户下次想找还是找不到
+                var toast = new TrayToastForm(4000, "浮窗已隐藏", new[]
+                {
+                    "想找回来：右键托盘图标 → 桌面浮窗",
+                    "也可以在设置页重新打开「桌面浮窗」"
+                });
+                toast.Show();
+                toast.BringToFront();
+            }
+            catch (Exception ex) { SafeLog("float hidden toast failed: " + ex.Message); }
         }
 
         /// <summary>拖动结束后把位置写回设置（只写一次，不是每一帧都写）。</summary>
@@ -1229,6 +1320,26 @@ namespace ClassBell
             tray.Visible = true;
             var menu = new ContextMenuStrip();
             menu.Items.Add("打开课铃（Ctrl+Alt+B）", null, (s, e) => ShowMain());
+            // 浮窗的恢复入口：用户第一直觉就是去托盘找，所以放在「打开课铃」下面。
+            // CheckOnClick 负责切换，handler 里立刻显示/隐藏，不等轮询。
+            floatTrayItem = new ToolStripMenuItem("桌面浮窗") { CheckOnClick = true, Checked = true };
+            floatTrayItem.CheckedChanged += (s2, e2) =>
+            {
+                floatWindowEnabled = floatTrayItem.Checked;
+                if (floatTrayItem.Checked)
+                {
+                    // 勾上：立刻显示（回到记住的位置），并把偏好写回设置
+                    ShowFloatWindow(true);
+                }
+                else
+                {
+                    // 取消：立刻隐藏，并关掉「启用浮窗」这个长期偏好
+                    floatHiddenByUser = false;
+                    if (floatWindow != null) floatWindow.Hide();
+                    PersistFloatWindowSetting(false);
+                }
+            };
+            menu.Items.Add(floatTrayItem);
             pendingItem = new ToolStripMenuItem("待完成 0 项") { Enabled = false };
             menu.Items.Add(pendingItem);
             menu.Items.Add(new ToolStripSeparator());

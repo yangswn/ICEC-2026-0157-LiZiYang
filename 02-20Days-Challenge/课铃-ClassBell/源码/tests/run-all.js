@@ -17,3 +17,4 @@ require('./estimate.test.js');
 require('./model-optin.test.js');
 require('./model-toggle-ux.test.js');
 require('./float-window.test.js');
+require('./float-window-recover.test.js');

@@ -147,7 +147,7 @@ test('host picks the same "next task" as the renderer', () => {
 test('float window refreshes on the existing 30 second poll', () => {
   const at = mainCs.indexOf('private async Task PollStatusAsync');
   assert.ok(at > 0);
-  const block = mainCs.slice(at, at + 2200);
+  const block = mainCs.slice(at, at + 3000);
   assert.ok(block.includes('SyncFloatWindow'), '30 秒轮询里要推一次下一项');
   assert.ok(/Interval = 30000/.test(mainCs), '轮询周期是 30 秒');
 });
