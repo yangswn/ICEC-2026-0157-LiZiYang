@@ -407,6 +407,28 @@ function seriesAnchor(task) {
  * @param {object} task 需要 recurrence/dueAt/seriesStartAt/recurrenceDay
  * @param {number} [now] 参考时间，默认当前时刻；用于把过期很久的任务滚到未来
  */
+/**
+ * 新一期必须清空的状态。加字段时往这里加 —— 手写重置已经漏加过三次，别再手写。
+ *
+ * 注意：seriesStartAt 不在这里。它由 normalizeTask 的 dueChanged 逻辑决定
+ * （1.6.3 修的是"改期后从哪个月开始算"），塞进这张表会把那次修复弄坏。
+ */
+const OCCURRENCE_RESET = {
+  status: 'pending',
+  completedAt: null,
+  completedBy: '',
+  remindersSent: [],
+  // 开工时间与实际耗时只属于上一期；带过去界面会显示"进行中"，
+  // 更要命的是会污染估时的历史层（同课同题量会拿这份复制数据当样本）。
+  startAt: null,
+  actualMinutes: null,
+  // 新一期要重新估
+  estimatedMinutes: null,
+  estimateSource: null,
+  // 估时按天缓存的日期键：一起清掉，免得新一期以为"今天已经估过了"
+  estimateDay: null
+};
+
 function nextOccurrence(task, now = Date.now()) {
   if (!task || !['daily', 'weekly', 'monthly'].includes(task.recurrence)) return null;
   const base = new Date(task.dueAt);
@@ -447,12 +469,9 @@ function nextOccurrence(task, now = Date.now()) {
   if (!candidate || Number.isNaN(candidate.getTime())) return null;
   return {
     ...task,
+    ...OCCURRENCE_RESET,
     id: uid('t_'),
     dueAt: candidate.toISOString(),
-    status: 'pending',
-    completedAt: null,
-    completedBy: '',
-    remindersSent: [],
     createdAt: nowIso(),
     updatedAt: nowIso(),
     seriesId: task.seriesId || task.id,
@@ -1283,6 +1302,7 @@ module.exports = {
   defaultState,
   normalizeTask,
   nextOccurrence,
+  OCCURRENCE_RESET,
   normalizeOffsets,
   NO_DEADLINE_ISO,
   shouldShowCloseHint,

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.9.2 — 2026-11-17
+
+重复任务生成下一期时，把上一期的「做完了」状态一起继承了。
+
+### Fixed
+
+- **下一期带着上一期的开工时间与实际耗时**：`nextOccurrence()` 用 `...task` 复制上一期再手写重置几个字段，漏了 1.7.0 新增的 `startAt` / `actualMinutes`。后果有两层：
+  - 界面：下一期一创建就带着开工时间，直接显示「进行中」；
+  - 估时：`actualMinutes` 是历史层的数据源（同课同题量 ≥3 次取中位数）。每期都继承上一期的值 → 「3 次样本」里可能有 2 次是同一份数据复制出来的 → **历史层被自己污染，估时越用越偏，用户看不出来**。
+- **改成集中的重置表**：`...task` + 手写重置这种写法已经漏过三次（1.6.1 `recurrenceDay`、1.6.3 `seriesStartAt`、1.9.2 `startAt`/`actualMinutes`），现在统一成 `OCCURRENCE_RESET`，以后加字段只改一处；
+- 重置表同时清掉 `estimatedMinutes` / `estimateSource` / `estimateDay`（新一期要重新估，不能沿用上一期的估时和"今天已估过"的日期键）；
+- `seriesStartAt` **刻意不在表里** —— 它由 `normalizeTask` 的 `dueChanged` 逻辑决定，放进表会破坏 1.6.3 的修复。
+
+### Verified
+
+- 真机：创建每月任务 → 点「开始做」→ 完成（actualMinutes=40）→ 下一期 `status=pending, startAt=null, actualMinutes=null, estimatedMinutes=null, estimateSource=null`，`NEXT_PERIOD_CLEAN_OK`；
+- 单测覆盖：`OCCURRENCE_RESET` 每个 key 在新一期都等于表里的值；完成一条带 `startAt` + `actualMinutes` 的重复任务后，历史样本数仍是 1（没被复制成 2）；改期后 `seriesStartAt` 仍按 1.6.3 规则走、锚点日仍按 1.6.1 规则传递。
+
 ## 1.9.1 — 2026-11-17
 
 浮窗的交互死角：隐藏之后没有恢复入口。用户原话「我把他隐藏了之后不知道应该怎么打开了」。
