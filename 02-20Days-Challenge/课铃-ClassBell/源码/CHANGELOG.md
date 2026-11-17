@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.9.3 — 2026-11-17
+
+两处同类遗漏。这次先把「谁会写 pending」全项目扫了一遍，再动手改。
+
+### Fixed
+
+- **`restoreTask` 没清开工时间与实际耗时**：把已完成的任务改回「待完成」时只改了 `status` / `completedAt`，`startAt` 与 `actualMinutes` 原样留着。后果和 1.9.2 一模一样 —— 任务明明是待完成，界面却显示「进行中」；`actualMinutes` 继续被估时的历史层当成样本，越用越偏。
+- **抽成 `PENDING_STATE_RESET` 一张表**，`updateTask` 的 pending 分支和 `nextOccurrence` 共用（`OCCURRENCE_RESET = { ...PENDING_STATE_RESET }`）。这个坑踩过四次（1.6.1 日号 / 1.6.3 起始月 / 1.9.2 生成下一期 / 1.9.3 改回待完成），以后加字段只改一处。
+- 只在**真的发生状态转换**时重置（`existing.status !== 'pending'`）。编辑弹窗对一条进行中的任务保存时也会带 `status:'pending'`，那种情况不该把开工时间抹掉。
+- **`floatWindowPos` 两端都限范围（±100000）**：JS 端原来只挡了非数字和 Infinity，`"999999,999999"` 这种「有限但离谱」的值照存不误；C# 端原来只靠 `ClampToVisible` 兜底。
+- 位置解析从 `MainForm` 抽到 `desktop/PositionParse.cs`，**用区间判断而不是 `Math.Abs`** —— `Math.Abs(int.MinValue)` 会抛 `OverflowException`（-2147483648 的绝对值超出 int 上限），而这里恰好会收到这种外部写入值。JS 端可以放心用 `Math.abs`（Number 是双精度，不会溢出），两边写法不同是故意的。
+- 注释与实现对齐：解析失败或超范围 → 当没设过走默认位置；解析成功但落在屏幕外/边缘 → 由 `ClampToVisible` 夹回可见范围（不是回默认角）。
+
+### 全路径排查（谁会把 status 写成 pending）
+
+| # | 位置 | 说明 | 状态 |
+| --- | --- | --- | --- |
+| 1 | `nextOccurrence()` | 生成新一期 | 1.9.2 已修 |
+| 2 | `restoreTask()` | → 走 `updateTask` 的 pending 分支 | 本次修 |
+| 3 | 通用 `PATCH /api/tasks/:id` 带 `status:'pending'`（编辑弹窗） | 同一个分支 | 本次一并覆盖 |
+| 4 | 学习通同步 | 只做 pending → done/missed，不反向 | 不涉及 |
+
+结论：真正的写入点只有 `nextOccurrence` 与 `updateTask` 两处，已全部收敛到同一张表。
+
+### Verified（真机）
+
+- 完成（actualMinutes=35）→ 改回待完成：`startAt=null, actualMinutes=null, estimatedMinutes=null, estimateSource=null, estimateDay=null`，`RESTORE_CLEAN_OK`；
+- `999999,999999` / `-2147483648,0` / `abc` / `1,2,3` / `500000,-500000` → 全部存成 `""`；`999,999` 正常保留；
+- `-2147483648,0` 之后宿主进程存活（1.9.3.0），没有因 `Math.Abs` 溢出崩掉；
+- `data.json` 里 `floatWindowPos` 确实为空字符串。
+
 ## 1.9.2 — 2026-11-17
 
 重复任务生成下一期时，把上一期的「做完了」状态一起继承了。

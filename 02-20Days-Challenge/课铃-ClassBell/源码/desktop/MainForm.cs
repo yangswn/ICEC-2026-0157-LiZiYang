@@ -1091,22 +1091,18 @@ namespace ClassBell
         }
 
         /// <summary>
-        /// 恢复浮窗位置。记住的点可能落在已拔掉的显示器上，
-        /// 那种情况下 FloatWindow.ClampToVisible 会把它送回主屏右下角。
+        /// 恢复浮窗位置。
+        /// 解析失败或数值超出 ±100000 一律当没设过、走默认位置；
+        /// 解析成功但落在屏幕外或屏幕边缘时，由 ClampToVisible 夹回可见范围（不是回默认角）。
         /// </summary>
         private Point ResolveFloatPosition(Size size)
         {
             try
             {
-                string raw = floatWindowPos;
-                if (!string.IsNullOrWhiteSpace(raw))
+                Point remembered;
+                if (PositionParse.TryParse(floatWindowPos, out remembered))
                 {
-                    var parts = raw.Split(',');
-                    int x, y;
-                    if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out x) && int.TryParse(parts[1].Trim(), out y))
-                    {
-                        return FloatWindow.ClampToVisible(new Point(x, y), size);
-                    }
+                    return FloatWindow.ClampToVisible(remembered, size);
                 }
             }
             catch { }

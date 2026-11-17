@@ -408,26 +408,37 @@ function seriesAnchor(task) {
  * @param {number} [now] 参考时间，默认当前时刻；用于把过期很久的任务滚到未来
  */
 /**
+ * 任务回到「待完成」时必须清空的状态。
+ *
+ * 这个坑踩过四次（1.6.1 日号 / 1.6.3 起始月 / 1.9.2 生成下一期 / 1.9.3 改回待完成），
+ * 所以集中成一张表：加字段时只改这里，不要再在各处手写 delete/reset。
+ *
+ * 为什么这些字段必须清：
+ *   - startAt 留着 → 任务明明是待完成，界面却显示「进行中」；
+ *   - actualMinutes 留着 → 估时的历史层会把它当样本（同课同题量取中位数），
+ *     同一份数据被反复计入，估时越用越偏，用户还看不出来；
+ *   - estimated* 留着 → 新状态下应该重新估，不该沿用旧的。
+ */
+const PENDING_STATE_RESET = {
+  status: 'pending',
+  completedAt: null,
+  completedBy: '',
+  remindersSent: [],
+  startAt: null,
+  actualMinutes: null,
+  estimatedMinutes: null,
+  estimateSource: null,
+  estimateDay: null
+};
+
+/**
  * 新一期必须清空的状态。加字段时往这里加 —— 手写重置已经漏加过三次，别再手写。
  *
  * 注意：seriesStartAt 不在这里。它由 normalizeTask 的 dueChanged 逻辑决定
  * （1.6.3 修的是"改期后从哪个月开始算"），塞进这张表会把那次修复弄坏。
  */
-const OCCURRENCE_RESET = {
-  status: 'pending',
-  completedAt: null,
-  completedBy: '',
-  remindersSent: [],
-  // 开工时间与实际耗时只属于上一期；带过去界面会显示"进行中"，
-  // 更要命的是会污染估时的历史层（同课同题量会拿这份复制数据当样本）。
-  startAt: null,
-  actualMinutes: null,
-  // 新一期要重新估
-  estimatedMinutes: null,
-  estimateSource: null,
-  // 估时按天缓存的日期键：一起清掉，免得新一期以为"今天已经估过了"
-  estimateDay: null
-};
+// 新一期 = 「回到待完成」的全部重置项。语义相同就直接复用，别抄一份。
+const OCCURRENCE_RESET = { ...PENDING_STATE_RESET };
 
 function nextOccurrence(task, now = Date.now()) {
   if (!task || !['daily', 'weekly', 'monthly'].includes(task.recurrence)) return null;
@@ -692,9 +703,11 @@ class Store {
       updated.completedBy = cleanText(patch.completedBy, 20) || 'user';
       this.state.metrics.totalCompleted += 1;
     }
-    if (patch.status === 'pending') {
-      updated.completedAt = null;
-      updated.completedBy = '';
+    // 从别的状态转回待完成时，把上一轮的状态全部清掉（见 PENDING_STATE_RESET）。
+    // 只在「真的发生了状态转换」时清：编辑弹窗对一条本来就在进行中的任务保存时，
+    // 也会带上 status:'pending'，那种情况不该把它的开工时间和耗时抹掉。
+    if (patch.status === 'pending' && existing.status !== 'pending') {
+      Object.assign(updated, PENDING_STATE_RESET);
     }
     this.state.tasks[idx] = updated;
     this.scheduleSave();
@@ -787,7 +800,9 @@ class Store {
   }
 
   restoreTask(id) {
-    return this.updateTask(id, { status: 'pending', completedAt: null });
+    // 重置字段全部由 updateTask 的 pending 分支统一处理（PENDING_STATE_RESET），
+    // 这里只负责把状态说出来，避免两处各写一份、迟早再漏。
+    return this.updateTask(id, { status: 'pending' });
   }
 
   updateSettings(patch) {
@@ -817,14 +832,21 @@ class Store {
       } else if (key === 'floatWindow') {
         next.floatWindow = patch.floatWindow === true || patch.floatWindow === 'true';
       } else if (key === 'floatWindowPos') {
-        // 只收 "x,y"。脏值会让浮窗跑到屏幕外，宁可当没设过、回到默认角
+        // 只收 "x,y"，且要求落在 ±100000 内 —— 光判"有限"不够，
+        // "999999,999999" 是有限但离谱的值，存下来浮窗就跑没影了。
+        // 这里用 Math.abs 是安全的：JS 的 Number 是双精度，不会有 int 溢出。
         const raw = String(patch.floatWindowPos == null ? '' : patch.floatWindowPos).trim();
-        const parts = raw.split(',');
-        const x = Number(parts[0]);
-        const y = Number(parts[1]);
-        next.floatWindowPos = parts.length === 2 && Number.isFinite(x) && Number.isFinite(y)
-          ? Math.round(x) + ',' + Math.round(y)
-          : '';
+        if (!raw) {
+          next.floatWindowPos = '';
+        } else {
+          const parts = raw.split(',');
+          const x = Number(parts[0]);
+          const y = Number(parts[1]);
+          const ok = parts.length === 2
+            && Number.isFinite(x) && Number.isFinite(y)
+            && Math.abs(x) <= 100000 && Math.abs(y) <= 100000;
+          next.floatWindowPos = ok ? Math.round(x) + ',' + Math.round(y) : '';
+        }
       } else if (key === 'uiScale') {
         // 只接受界面里提供的 6 档，避免脏值把页面缩坏
         const allowedScales = [0.9, 1, 1.1, 1.25, 1.4, 1.6];
@@ -1303,6 +1325,7 @@ module.exports = {
   normalizeTask,
   nextOccurrence,
   OCCURRENCE_RESET,
+  PENDING_STATE_RESET,
   normalizeOffsets,
   NO_DEADLINE_ISO,
   shouldShowCloseHint,
