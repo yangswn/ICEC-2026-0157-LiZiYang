@@ -44,6 +44,13 @@ namespace ClassBell
         private System.Windows.Forms.Timer trayPromoteTimer;
         // 托盘图标对象必须长期持有，否则 GC 后托盘会显示空白或消失
         private Icon trayIcon;
+        // 桌面浮窗：显示下一项任务，常驻桌面
+        private FloatWindow floatWindow;
+        private bool floatWindowEnabled = true;
+        // 浮窗位置缓存：轮询里读设置、拖动后回写，避免每次都从 JSON 里取
+        private string floatWindowPos = "";
+        // 最近一次 /api/state 的 settings 节点：浮窗按 uiScale 缩放要用
+        private Dictionary<string, object> latestSettings;
         // 轻提示每个会话只弹一次
         private bool trayToastShown;
         private System.Windows.Forms.Timer trayKeepAliveTimer;
@@ -219,6 +226,7 @@ namespace ClassBell
                 StartTimers();
                 await PollStatusAsync();
                 ShowTrayHintOnce();
+                CreateFloatWindow();
                 // Explorer 可能要过一会儿才登记托盘项，启动后多试几次
                 trayPromoteTimer = new System.Windows.Forms.Timer { Interval = 4000 };
                 int promoteTries = 0;
@@ -555,7 +563,19 @@ namespace ClassBell
                     trayHintShown = HostApi.Bool(settings, "trayHintShown", false);
                     SetAutoLaunch(HostApi.Bool(settings, "autoLaunch", true));
                     autoLaunchItem.Checked = HostApi.Bool(settings, "autoLaunch", true);
+
+                    // 浮窗设置：位置只在设置页改过时更新（拖动时本地已经是最新值）
+                    string savedPos = HostApi.Str(settings, "floatWindowPos", "");
+                    if (!string.IsNullOrWhiteSpace(savedPos)) floatWindowPos = savedPos;
+                    bool enabled = HostApi.Bool(settings, "floatWindow", true);
+                    if (enabled != floatWindowEnabled)
+                    {
+                        floatWindowEnabled = enabled;
+                        if (!enabled && floatWindow != null) floatWindow.Hide();
+                    }
                 }
+
+                SyncFloatWindow(stateNode);
                 settingsLoaded = true;
             }
             catch { settingsLoaded = true; }
@@ -620,15 +640,107 @@ namespace ClassBell
                     pendingItem.Text = "待完成 " + pending + " 项";
                     tray.Text = "课铃 ClassBell · " + pending + " 项待完成";
                 }
+                latestSettings = settings;
                 if (settings != null && settingsLoaded)
                 {
                     closeToTray = HostApi.Bool(settings, "closeToTray", true);
                     closeHintShown = HostApi.Bool(settings, "closeHintShown", false);
                     trayHintShown = HostApi.Bool(settings, "trayHintShown", false);
                     autoLaunchItem.Checked = HostApi.Bool(settings, "autoLaunch", true);
+
+                    // 设置页关掉浮窗后，最多等一个轮询周期它就消失
+                    bool wanted = HostApi.Bool(settings, "floatWindow", true);
+                    if (wanted != floatWindowEnabled)
+                    {
+                        floatWindowEnabled = wanted;
+                        if (!wanted && floatWindow != null) floatWindow.Hide();
+                    }
                 }
+
+                // 每 30 秒把「下一项任务」推给浮窗
+                SyncFloatWindow(stateNode);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// 把最新状态推给浮窗。没有待办时传 null，由浮窗自己显示「今天没有待办」再淡出。
+        /// </summary>
+        private void SyncFloatWindow(Dictionary<string, object> stateNode)
+        {
+            if (floatWindow == null) return;
+            try
+            {
+                if (!floatWindowEnabled) { floatWindow.Hide(); return; }
+
+                floatWindow.ApplyScale(CurrentUiScale());
+                var next = ComputeNextTask(stateNode);
+                floatWindow.SetTask(next);
+
+                // 有任务就确保可见（不抢焦点）；全屏时 FloatWindow 自己会让路
+                if (next != null) floatWindow.ShowWindowWithoutStealingFocus();
+            }
+            catch (Exception ex) { SafeLog("float window sync failed: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// 从 state.tasks 里挑「下一项」：待完成、有截止时间、按时间升序，
+        /// 优先还没过期的第一条；都过期了就取最早那条。
+        /// 渲染层 nextPendingTask() 用的是同一套规则，两边必须一致。
+        /// </summary>
+        private static FloatWindow.TaskInfo ComputeNextTask(Dictionary<string, object> stateNode)
+        {
+            try
+            {
+                if (stateNode == null || !stateNode.ContainsKey("tasks")) return null;
+                var tasks = stateNode["tasks"] as IList;
+                if (tasks == null) return null;
+
+                FloatWindow.TaskInfo best = null;
+                DateTime bestDue = DateTime.MaxValue;
+                FloatWindow.TaskInfo earliestOverdue = null;
+                DateTime earliestDue = DateTime.MaxValue;
+                var now = DateTime.Now;
+
+                foreach (var entry in tasks)
+                {
+                    var task = entry as Dictionary<string, object>;
+                    if (task == null) continue;
+                    if (HostApi.Str(task, "status") != "pending") continue;
+                    if (HostApi.Bool(task, "noDeadline", false)) continue;
+
+                    DateTime due;
+                    if (!DateTime.TryParse(HostApi.Str(task, "dueAt"), null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out due)) continue;
+                    due = due.ToLocalTime();
+
+                    var info = new FloatWindow.TaskInfo
+                    {
+                        Title = HostApi.Str(task, "title"),
+                        Course = HostApi.Str(task, "course"),
+                        DueAt = due,
+                        Category = CategoryLabel(HostApi.Str(task, "category")),
+                        Overdue = due < now
+                    };
+
+                    if (due >= now && due < bestDue) { bestDue = due; best = info; }
+                    if (due < now && due < earliestDue) { earliestDue = due; earliestOverdue = info; }
+                }
+
+                return best ?? earliestOverdue;
+            }
+            catch { return null; }
+        }
+
+        private static string CategoryLabel(string category)
+        {
+            switch (category)
+            {
+                case "homework": return "作业";
+                case "exam": return "考试";
+                case "schedule": return "日程";
+                default: return "任务";
+            }
         }
 
         private void ShowNextReminder()
@@ -910,6 +1022,106 @@ namespace ClassBell
             loginForm = new LoginForm(dataDir, this, WebViewEnvironment);
             loginForm.FormClosed += (s, e) => loginForm = null;
             loginForm.Show(this);
+        }
+
+        /// <summary>
+        /// 第一次创建浮窗。位置从设置里恢复；没设过就落在主屏右下角。
+        /// </summary>
+        private void CreateFloatWindow()
+        {
+            try
+            {
+                if (floatWindow != null) return;
+                floatWindow = new FloatWindow(this);
+                floatWindow.ApplyScale(CurrentUiScale());
+                floatWindow.StartPosition = FormStartPosition.Manual;
+                // 先缩放再算位置：位置依赖真实尺寸，用 300×84 会算到屏幕外
+                floatWindow.Location = ResolveFloatPosition(floatWindow.Size);
+                ApplyFloatVisibility();
+            }
+            catch (Exception ex) { SafeLog("float window failed: " + ex.Message); }
+        }
+
+        private float CurrentUiScale()
+        {
+            try
+            {
+                var state = latestSettings == null ? null : new Dictionary<string, object> { { "settings", latestSettings } };
+                if (state != null && state.ContainsKey("settings"))
+                {
+                    var settings = state["settings"] as Dictionary<string, object>;
+                    float scale = (float)Convert.ToDouble(settings != null && settings.ContainsKey("uiScale") ? settings["uiScale"] : 1.1);
+                    return scale > 0 ? scale : 1.1f;
+                }
+            }
+            catch { }
+            return 1.1f;
+        }
+
+        /// <summary>
+        /// 恢复浮窗位置。记住的点可能落在已拔掉的显示器上，
+        /// 那种情况下 FloatWindow.ClampToVisible 会把它送回主屏右下角。
+        /// </summary>
+        private Point ResolveFloatPosition(Size size)
+        {
+            try
+            {
+                string raw = floatWindowPos;
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    var parts = raw.Split(',');
+                    int x, y;
+                    if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out x) && int.TryParse(parts[1].Trim(), out y))
+                    {
+                        return FloatWindow.ClampToVisible(new Point(x, y), size);
+                    }
+                }
+            }
+            catch { }
+            return FloatWindow.DefaultPosition(size);
+        }
+
+        /// <summary>设置页关掉浮窗时调用：只隐藏，不销毁 —— 重开就能回到原位。</summary>
+        internal void HideFloatWindow()
+        {
+            if (floatWindow != null) floatWindow.Hide();
+        }
+
+        /// <summary>拖动结束后把位置写回设置（只写一次，不是每一帧都写）。</summary>
+        internal void SaveFloatWindowPosition(Point location)
+        {
+            floatWindowPos = location.X + "," + location.Y;
+            try
+            {
+                var payload = new Dictionary<string, object> { { "floatWindowPos", floatWindowPos } };
+                HostApi.PostJsonAsync("/api/settings", payload).ContinueWith(t => { });
+            }
+            catch { }
+        }
+
+        /// <summary>浮窗双击 / 菜单「打开课铃」：把主窗口拉到前台，可选切到某一页。</summary>
+        internal void OpenMainWindow(string page = null)
+        {
+            ShowMain();
+            if (string.IsNullOrEmpty(page)) return;
+            try
+            {
+                if (webView.CoreWebView2 != null)
+                    webView.CoreWebView2.ExecuteScriptAsync("window.__campusGoPage(" + HostApi.Json.Serialize(page) + ")");
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 按设置决定浮窗显不显示。分两种情况：
+        ///  - 有任务：显示（除非正被全屏应用挡着，那种情况交给 FloatWindow 自己判断）
+        ///  - 没任务：显一下「今天没有待办」，由 FloatWindow 淡出
+        /// </summary>
+        private void ApplyFloatVisibility()
+        {
+            if (floatWindow == null) return;
+            if (!floatWindowEnabled) { floatWindow.Hide(); return; }
+            floatWindow.ShowWindowWithoutStealingFocus();
         }
 
         private void ShowMain()

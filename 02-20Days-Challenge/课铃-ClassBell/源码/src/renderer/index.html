@@ -85,7 +85,7 @@
         <div class="sidebar-foot">
           <button class="side-quit" id="btn-quit-side" title="终止课铃并关闭后台服务"><svg><use href="#i-power"/></svg><span>终止课铃</span></button>
           <div class="foot-line"><span>数据仅保存在本机</span><svg><use href="#i-shield"/></svg></div>
-          <div class="foot-version" id="foot-version">v1.8.1</div>
+          <div class="foot-version" id="foot-version">v1.9.0</div>
         </div>
       </aside>
 
@@ -514,7 +514,9 @@
                 <div class="settings-title"><div><h2>运行与同步</h2><p>让提醒在后台可靠工作</p></div><svg><use href="#i-sync"/></svg></div>
                 <div class="switch-row"><div><strong>开机自动启动</strong><p>登录 Windows 后在后台启动，不打扰</p></div><label class="switch"><input type="checkbox" id="set-auto-launch" /><span></span></label></div>
                 <div class="switch-row"><div><strong>关闭窗口时最小化到托盘</strong><p>点 × 时窗口隐藏、程序继续运行，这样到点才能提醒你。关掉后点 × 将直接退出课铃，不再提醒。</p></div><label class="switch"><input type="checkbox" id="set-close-tray" /><span></span></label></div>
-                <div class="switch-row"><div><strong>自动同步学习通</strong><p>已登录时按间隔检查新作业</p></div><label class="switch"><input type="checkbox" id="set-auto-sync" /><span></span></label></div>
+                <div class="switch-row"><div><strong>桌面浮窗</strong><p>在桌面上常驻一小块，显示下一项任务和倒计时。可拖动、双击打开主窗口，全屏时自动让路。</p></div>
+<label class="switch"><input type="checkbox" id="set-float-window" /><span></span></label></div>
+<div class="switch-row"><div><strong>自动同步学习通</strong><p>已登录时按间隔检查新作业</p></div><label class="switch"><input type="checkbox" id="set-auto-sync" /><span></span></label></div>
                 <div class="field-block inline-field">
                   <label class="field-label" for="set-sync-interval">同步间隔</label>
                   <select id="set-sync-interval" class="select">
@@ -547,7 +549,7 @@
               </div>
 
               <div class="panel settings-panel about-panel">
-                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.8.1</span></div></div>
+                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.9.0</span></div></div>
                 <p>面向大学生的轻量课程任务提醒工具。非学习通官方产品，仅读取你本人有权访问的课程数据。</p>
                 <div class="about-links">
                   <button class="link-btn" id="btn-open-data-2"><svg><use href="#i-folder"/></svg>数据目录</button>

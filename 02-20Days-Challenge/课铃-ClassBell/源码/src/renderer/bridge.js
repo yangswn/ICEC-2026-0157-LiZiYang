@@ -233,6 +233,7 @@
     onMaximized: () => () => {},
     onNewTask: (cb) => on('newTask', cb),
     onOpenTask: (cb) => on('openTask', cb),
+    onGoPage: (cb) => on('goPage', cb),
     onReminderData: (cb) => on('reminderData', cb),
     onCxLoading: () => () => {},
     onCxNavigated: () => () => {},
@@ -243,5 +244,7 @@
 
   window.__campusNewTask = () => emit('newTask');
   window.__campusOpenTask = (id) => emit('openTask', id);
+  // 浮窗右键菜单「设置」用：宿主执行 window.__campusGoPage("settings")
+  window.__campusGoPage = (page) => emit('goPage', page);
   window.campus = api;
 })();

@@ -105,6 +105,11 @@ function defaultSettings() {
     // 模型估时默认关闭：规则版 6 毫秒出结果，模型要 30 秒 + 5~6GB 内存，
     // 而且题量明确时两者数字完全一致，不值得当默认路径。
     useModelEstimate: false,
+    // 桌面浮窗：默认开。用户反馈"存在感太低、平时都挂后台"，
+    // 默认关掉等于白做，所以首次启动就出现在主屏右下角。
+    floatWindow: true,
+    // 浮窗位置 "x,y"；null 表示没拖过，落在主屏右下角
+    floatWindowPos: '',
     sound: true,
     quietHours: { enabled: false, start: '23:00', end: '07:00' },
     logMirrorDir: '',
@@ -772,7 +777,8 @@ class Store {
       'autoAddFromChaoxing', 'sound', 'quietHours', 'logMirrorDir',
       'displayName', 'firstRun', 'reminderOffsets',
       'uiScale', 'scaleGuideDone', 'lastPage',
-      'closeHintShown', 'trayHintShown', 'useModelEstimate'
+      'closeHintShown', 'trayHintShown', 'useModelEstimate',
+      'floatWindow', 'floatWindowPos'
     ];
     const next = { ...this.state.settings };
     for (const key of allowed) {
@@ -789,6 +795,17 @@ class Store {
         };
       } else if (key === 'reminderOffsets') {
         next.reminderOffsets = normalizeOffsets(patch.reminderOffsets);
+      } else if (key === 'floatWindow') {
+        next.floatWindow = patch.floatWindow === true || patch.floatWindow === 'true';
+      } else if (key === 'floatWindowPos') {
+        // 只收 "x,y"。脏值会让浮窗跑到屏幕外，宁可当没设过、回到默认角
+        const raw = String(patch.floatWindowPos == null ? '' : patch.floatWindowPos).trim();
+        const parts = raw.split(',');
+        const x = Number(parts[0]);
+        const y = Number(parts[1]);
+        next.floatWindowPos = parts.length === 2 && Number.isFinite(x) && Number.isFinite(y)
+          ? Math.round(x) + ',' + Math.round(y)
+          : '';
       } else if (key === 'uiScale') {
         // 只接受界面里提供的 6 档，避免脏值把页面缩坏
         const allowedScales = [0.9, 1, 1.1, 1.25, 1.4, 1.6];

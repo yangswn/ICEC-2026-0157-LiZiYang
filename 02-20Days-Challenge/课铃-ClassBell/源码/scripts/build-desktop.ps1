@@ -17,7 +17,7 @@ try {
   & $csc /nologo /platform:x64 /target:winexe /out:ClassBell.exe /win32manifest:app.manifest /win32icon:"$root\build\icon.ico" `
     /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll `
     /r:"$core" /r:"$winforms" `
-    Program.cs MainForm.cs LoginForm.cs ReminderForm.cs CloseHintDialog.cs TrayToastForm.cs HostApi.cs AssemblyInfo.cs
+    Program.cs MainForm.cs LoginForm.cs ReminderForm.cs CloseHintDialog.cs TrayToastForm.cs FloatWindow.cs HostApi.cs AssemblyInfo.cs
   if ($LASTEXITCODE -ne 0) { throw "desktop host build failed (exit $LASTEXITCODE)" }
 } finally {
   Pop-Location

@@ -1184,6 +1184,7 @@ function renderSettings() {
   setCheck('#set-quiet', s.quietHours && s.quietHours.enabled);
   setCheck('#set-auto-launch', s.autoLaunch);
   setCheck('#set-close-tray', s.closeToTray);
+  setCheck('#set-float-window', s.floatWindow !== false);
   setCheck('#set-auto-sync', s.autoSync);
   setCheck('#set-auto-add', s.autoAddFromChaoxing);
   setCheck('#set-model-estimate', Boolean(s.useModelEstimate));
@@ -2374,6 +2375,7 @@ function bindEvents() {
   $('#quiet-end').addEventListener('change', (e) => updateSetting({ quietHours: { ...App.state.settings.quietHours, end: e.target.value } }));
   $('#set-auto-launch').addEventListener('change', (e) => updateSetting({ autoLaunch: e.target.checked }));
   $('#set-close-tray').addEventListener('change', (e) => updateSetting({ closeToTray: e.target.checked }));
+  $('#set-float-window').addEventListener('change', (e) => updateSetting({ floatWindow: e.target.checked }));
   $('#set-auto-sync').addEventListener('change', (e) => updateSetting({ autoSync: e.target.checked }));
   $('#set-auto-add').addEventListener('change', (e) => updateSetting({ autoAddFromChaoxing: e.target.checked }));
   // 开关只存设置、刷状态行，不弹任何 toast ——
@@ -2499,6 +2501,11 @@ function bindEvents() {
   api.onOpenTask((id) => {
     const task = App.state.tasks.find((t) => t.id === id);
     if (task) { setPage('tasks'); openTaskModal(task); }
+  });
+  // 浮窗菜单「设置」：宿主把窗口拉到前台后执行 __campusGoPage
+  api.onGoPage((page) => {
+    const allowed = ['dashboard', 'tasks', 'integration', 'notices', 'gear', 'mistakes', 'settings'];
+    if (allowed.includes(page)) setPage(page);
   });
   api.onCxLoading((loading) => {
     App.webviewLoading = Boolean(loading);
