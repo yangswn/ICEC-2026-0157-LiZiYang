@@ -110,6 +110,10 @@ function defaultSettings() {
     floatWindow: true,
     // 浮窗位置 "x,y"；null 表示没拖过，落在主屏右下角
     floatWindowPos: '',
+    // 桌面浮窗与提醒弹窗各自独立的字号档位（1.1 = 110%，和主界面默认一致）。
+    // 分开存是因为这三处想要的字号经常不一样：浮窗要小、提醒弹窗要大。
+    floatScale: 1.1,
+    toastScale: 1.1,
     sound: true,
     quietHours: { enabled: false, start: '23:00', end: '07:00' },
     logMirrorDir: '',
@@ -841,7 +845,7 @@ class Store {
       'displayName', 'firstRun', 'reminderOffsets',
       'uiScale', 'scaleGuideDone', 'lastPage',
       'closeHintShown', 'trayHintShown', 'useModelEstimate',
-      'floatWindow', 'floatWindowPos'
+      'floatWindow', 'floatWindowPos', 'floatScale', 'toastScale'
     ];
     const next = { ...this.state.settings };
     for (const key of allowed) {
@@ -881,6 +885,11 @@ class Store {
         const allowedScales = [0.9, 1, 1.1, 1.25, 1.4, 1.6];
         const value = Number(patch.uiScale);
         next.uiScale = allowedScales.includes(value) ? value : (next.uiScale || 1.1);
+      } else if (key === 'floatScale' || key === 'toastScale') {
+        // 只接受界面里提供的 6 档，脏值会把窗口缩坏
+        const scaleOptions = [0.9, 1, 1.1, 1.25, 1.4, 1.6];
+        const requested = Number(patch[key]);
+        next[key] = scaleOptions.includes(requested) ? requested : (next[key] || 1.1);
       } else if (key === 'lastPage') {
         const allowedPages = ['dashboard', 'tasks', 'integration', 'notices', 'gear', 'mistakes', 'settings'];
         const value = cleanText(patch.lastPage, 20);

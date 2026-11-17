@@ -1036,3 +1036,17 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid #d8d2c4; border
   color: var(--muted-2);
   background: var(--paper-2);
 }
+
+/* 字号：三处（主界面 / 桌面浮窗 / 提醒弹窗）各一行，排在同一块里 */
+.scale-matrix {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 4px;
+}
+.scale-matrix-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.scale-matrix-value { font-size: 11.5px; color: var(--muted-2); white-space: nowrap; }
+/* 一行放六档，窄的时候自动换成两行，不会把数值挤出去 */
+.scale-matrix .scale-row { gap: 4px; }
+.scale-matrix .scale-row .seg { min-width: 44px; padding: 5px 8px; font-size: 11px; }

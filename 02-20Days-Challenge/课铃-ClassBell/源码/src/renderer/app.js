@@ -1697,8 +1697,12 @@ function mountLogsInSettings() {
   settingsPage.appendChild(logsPage);
 }
 
-function buildUiScaleOptions() {
-  const box = $('#ui-scale');
+/**
+ * 给一个字号容器铺上六档按钮。三个容器（主界面 / 浮窗 / 弹窗）共用这段。
+ * 用 dataset.built 防止重复渲染。
+ */
+function buildScaleOptions(selector) {
+  const box = $(selector);
   if (!box) return;
   if (!box.dataset.built) {
     box.innerHTML = UI_SCALES
@@ -1707,6 +1711,26 @@ function buildUiScaleOptions() {
     box.dataset.built = '1';
   }
 }
+
+function buildUiScaleOptions() {
+  buildScaleOptions('#ui-scale');
+  buildScaleOptions('#float-scale');
+  buildScaleOptions('#toast-scale');
+}
+
+/**
+ * 从设置里取某一处字号。三处独立存：uiScale（主界面）/ floatScale（浮窗）/ toastScale（提醒弹窗）。
+ * 取不到或不合法就用默认档，保证界面不会因为一个坏值变成 0.3 倍。
+ */
+function currentScale(key, fallback) {
+  const raw = App.state && App.state.settings ? Number(App.state.settings[key]) : NaN;
+  if (UI_SCALES.some((item) => item.value === raw)) return raw;
+  return fallback;
+}
+
+function currentFloatScale() { return currentScale('floatScale', DEFAULT_UI_SCALE); }
+
+function currentToastScale() { return currentScale('toastScale', DEFAULT_UI_SCALE); }
 
 function currentUiScale() {
   // 服务端 settings 是唯一可信来源（端口无关）；
@@ -1735,12 +1759,22 @@ function applySavedUiScale() {
   applyUiScale(currentUiScale());
 }
 
+/** 把一个字号容器里的按钮点亮成当前档位，并更新右侧的「大 · 110%」文案。 */
+function markScale(selector, hintSelector, scale) {
+  $$(selector + ' .seg').forEach((btn) => {
+    btn.classList.toggle('active', Number(btn.dataset.scale) === scale);
+  });
+  const note = UI_SCALES.find((item) => item.value === scale);
+  const hint = $(hintSelector);
+  if (hint && note) hint.textContent = `${note.label} · ${note.note}`;
+}
+
 function applyUiScale(scale) {
   document.documentElement.style.zoom = String(scale);
-  $$('#ui-scale .seg').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.scale) === scale));
-  const note = UI_SCALES.find((item) => item.value === scale);
-  const hint = $('#ui-scale-hint');
-  if (hint && note) hint.textContent = `当前 ${note.label} · ${note.note}`;
+  markScale('#ui-scale', '#ui-scale-hint', scale);
+  // 另外两处只刷新勾选状态（它们由宿主生效，这里只负责显示对）
+  markScale('#float-scale', '#float-scale-hint', currentFloatScale());
+  markScale('#toast-scale', '#toast-scale-hint', currentToastScale());
 }
 
 /** 首次使用引导：把“界面大小”摆在第一屏，避免用户以为页面糊或字太小。 */
@@ -1781,6 +1815,20 @@ function setUiScale(scale) {
   try { localStorage.setItem('campus:uiScale', String(value)); } catch (_) { /* ignore */ }
   if (App.state && App.state.settings) App.state.settings.uiScale = value;
   api.updateSettings({ uiScale: value }).catch(() => { /* 离线时忽略 */ });
+}
+
+/**
+ * 保存浮窗 / 提醒弹窗的字号。
+ *
+ * 这两处由宿主进程绘制，所以除了写设置还要通过 bridge 通知宿主立刻生效；
+ * 只写设置的话要等 30 秒轮询，用户会以为没调成功。
+ */
+function setSurfaceScale(target, scale) {
+  const value = UI_SCALES.some((item) => item.value === Number(scale)) ? Number(scale) : DEFAULT_UI_SCALE;
+  const key = target === 'float' ? 'floatScale' : 'toastScale';
+  if (App.state && App.state.settings) App.state.settings[key] = value;
+  markScale('#' + target + '-scale', '#' + target + '-scale-hint', value);
+  api.updateSettings({ [key]: value }).catch(() => { /* 离线时忽略 */ });
 }
 
 function stepUiScale(direction) {
@@ -2222,6 +2270,14 @@ function bindEvents() {
   $('#ui-scale').addEventListener('click', (event) => {
     const btn = event.target.closest('.seg');
     if (btn) setUiScale(btn.dataset.scale);
+  });
+  $('#float-scale').addEventListener('click', (event) => {
+    const btn = event.target.closest('.seg');
+    if (btn) setSurfaceScale('float', btn.dataset.scale);
+  });
+  $('#toast-scale').addEventListener('click', (event) => {
+    const btn = event.target.closest('.seg');
+    if (btn) setSurfaceScale('toast', btn.dataset.scale);
   });
   $('#btn-scroll-logs').addEventListener('click', () => {
     const logs = $('#page-logs');

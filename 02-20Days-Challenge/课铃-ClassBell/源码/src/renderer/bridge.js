@@ -143,9 +143,13 @@
       if (Object.prototype.hasOwnProperty.call(patch, 'floatWindow')) {
         host('applyFloatWindow', Boolean(patch.floatWindow)).catch(() => {});
       }
-      // 界面大小也立刻生效：不然浮窗和提醒弹窗要等 30 秒轮询才变，看着像没反应
-      if (Object.prototype.hasOwnProperty.call(patch, 'uiScale')) {
-        host('applyUiScale', Number(patch.uiScale)).catch(() => {});
+      // 浮窗 / 弹窗字号也立刻生效：不然要等 30 秒轮询，用户会以为没调成功。
+      // 主界面缩放不在这里处理 —— 那是前端 CSS zoom，宿主不参与。
+      if (Object.prototype.hasOwnProperty.call(patch, 'floatScale')) {
+        host('applySurfaceScale', 'float', Number(patch.floatScale)).catch(() => {});
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'toastScale')) {
+        host('applySurfaceScale', 'toast', Number(patch.toastScale)).catch(() => {});
       }
       return result;
     },

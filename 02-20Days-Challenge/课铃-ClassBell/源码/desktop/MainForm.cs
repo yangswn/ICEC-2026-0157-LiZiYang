@@ -56,8 +56,10 @@ namespace ClassBell
         private string floatWindowPos = "";
         // 最近一次 /api/state 的 settings 节点：浮窗按 uiScale 缩放要用
         private Dictionary<string, object> latestSettings;
-        // 用户在设置页改完「界面大小」后立刻生效：轮询要 30 秒，等不了
-        private float latestUiScale;
+        // 浮窗与提醒弹窗的字号各自独立（1.1 = 110%）。
+        // 设置页改完会立刻通过 applySurfaceScale 推过来，这里只是缓存。
+        private float floatScaleValue = 1.1f;
+        private float toastScaleValue = 1.1f;
         // 轻提示每个会话只弹一次
         private bool trayToastShown;
         private System.Windows.Forms.Timer trayKeepAliveTimer;
@@ -668,6 +670,12 @@ namespace ClassBell
                     // 位置也跟着设置走：拖动保存会写回去，这里读回来保持一致；
                     // 少了这句，"重新打开浮窗"会落到默认角而不是记住的位置。
                     string polledPos = HostApi.Str(settings, "floatWindowPos", "");
+
+                    // 字号也读回来：设置页改的会立刻推过来，这里兜住"直接改配置文件"的情况
+                    float polledFloatScale = (float)Convert.ToDouble(settings.ContainsKey("floatScale") ? settings["floatScale"] : 1.1);
+                    if (polledFloatScale >= 0.8f && polledFloatScale <= 1.8f) floatScaleValue = polledFloatScale;
+                    float polledToastScale = (float)Convert.ToDouble(settings.ContainsKey("toastScale") ? settings["toastScale"] : 1.1);
+                    if (polledToastScale >= 0.8f && polledToastScale <= 1.8f) toastScaleValue = polledToastScale;
                     if (!string.IsNullOrWhiteSpace(polledPos)) floatWindowPos = polledPos;
                 }
 
@@ -694,7 +702,7 @@ namespace ClassBell
                     return;
                 }
 
-                floatWindow.ApplyScale(CurrentUiScale());
+                floatWindow.ApplyScale(CurrentFloatScale());
                 var next = ComputeNextTask(stateNode);
                 floatWindow.SetTask(next);
 
@@ -892,12 +900,22 @@ namespace ClassBell
                     // 不必等 30 秒的状态轮询。
                     // 设置页切「桌面浮窗」后立刻生效，不必等 30 秒轮询
                     // 界面大小：立刻同步给浮窗，之后弹出的提醒弹窗也用它
-                    case "applyUiScale":
-                        float requested = (float)Convert.ToDouble(args != null && args.Length > 0 ? args[0] : 1.1);
-                        if (requested < 0.8f) requested = 0.8f;
-                        if (requested > 1.8f) requested = 1.8f;
-                        latestUiScale = requested;
-                        if (floatWindow != null) floatWindow.ApplyScale(requested);
+                    // 字号：前端改完立刻推过来，不必等 30 秒轮询。
+                    // 第一个参数是作用对象（float / toast），第二个是档位。
+                    case "applySurfaceScale":
+                        string surface = args != null && args.Length > 0 ? Convert.ToString(args[0]) : "";
+                        float scaleValue = (float)Convert.ToDouble(args != null && args.Length > 1 ? args[1] : 1.1);
+                        if (scaleValue < 0.8f) scaleValue = 0.8f;
+                        if (scaleValue > 1.8f) scaleValue = 1.8f;
+                        if (surface == "float")
+                        {
+                            floatScaleValue = scaleValue;
+                            if (floatWindow != null) floatWindow.ApplyScale(scaleValue);
+                        }
+                        else if (surface == "toast")
+                        {
+                            toastScaleValue = scaleValue;
+                        }
                         Respond(id, true, null);
                         break;
                     case "applyFloatWindow":
@@ -1076,7 +1094,7 @@ namespace ClassBell
             {
                 if (floatWindow != null) return;
                 floatWindow = new FloatWindow(this);
-                floatWindow.ApplyScale(CurrentUiScale());
+                floatWindow.ApplyScale(CurrentFloatScale());
                 floatWindow.StartPosition = FormStartPosition.Manual;
                 // 先缩放再算位置：位置依赖真实尺寸，用 300×84 会算到屏幕外
                 floatWindow.Location = ResolveFloatPosition(floatWindow.Size);
@@ -1085,22 +1103,16 @@ namespace ClassBell
             catch (Exception ex) { SafeLog("float window failed: " + ex.Message); }
         }
 
-        private float CurrentUiScale()
+        /// <summary>桌面浮窗用的字号档位。</summary>
+        private float CurrentFloatScale()
         {
-            try
-            {
-                var state = latestSettings == null ? null : new Dictionary<string, object> { { "settings", latestSettings } };
-                if (state != null && state.ContainsKey("settings"))
-                {
-                    var settings = state["settings"] as Dictionary<string, object>;
-                    float scale = (float)Convert.ToDouble(settings != null && settings.ContainsKey("uiScale") ? settings["uiScale"] : 1.1);
-                    // 设置页刚改过的值优先，避免等 30 秒轮询
-                    if (latestUiScale > 0) return latestUiScale;
-                    return scale > 0 ? scale : 1.1f;
-                }
-            }
-            catch { }
-            return 1.1f;
+            return floatScaleValue > 0 ? floatScaleValue : 1.1f;
+        }
+
+        /// <summary>提醒弹窗用的字号档位（各自独立，和浮窗、主界面都不联动）。</summary>
+        private float CurrentToastScale()
+        {
+            return toastScaleValue > 0 ? toastScaleValue : 1.1f;
         }
 
         /// <summary>
@@ -1145,7 +1157,7 @@ namespace ClassBell
             floatWindowEnabled = true;
             if (floatWindow == null) CreateFloatWindow();
             if (floatWindow == null) return;
-            floatWindow.ApplyScale(CurrentUiScale());
+            floatWindow.ApplyScale(CurrentFloatScale());
             floatWindow.Location = ResolveFloatPosition(floatWindow.Size);
             floatWindow.ShowWindowWithoutStealingFocus();
             SyncFloatTrayCheck();
@@ -1180,7 +1192,7 @@ namespace ClassBell
                 {
                     "想找回来：右键托盘图标 → 桌面浮窗",
                     "也可以在设置页重新打开「桌面浮窗」"
-                }, CurrentUiScale());
+                }, CurrentToastScale());
                 toast.Show();
                 toast.BringToFront();
             }
@@ -1249,7 +1261,7 @@ namespace ClassBell
                 try
                 {
                     // 同样跟随界面大小：收进托盘时的提示不该比主界面小一号
-                var toast = new TrayToastForm(6000, null, null, CurrentUiScale());
+                var toast = new TrayToastForm(6000, null, null, CurrentToastScale());
                     toast.Show();
                     toast.BringToFront();
                 }

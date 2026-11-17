@@ -85,7 +85,7 @@
         <div class="sidebar-foot">
           <button class="side-quit" id="btn-quit-side" title="终止课铃并关闭后台服务"><svg><use href="#i-power"/></svg><span>终止课铃</span></button>
           <div class="foot-line"><span>数据仅保存在本机</span><svg><use href="#i-shield"/></svg></div>
-          <div class="foot-version" id="foot-version">v1.10.2</div>
+          <div class="foot-version" id="foot-version">v1.10.3</div>
         </div>
       </aside>
 
@@ -515,7 +515,7 @@
                 <div class="switch-row"><div><strong>开机自动启动</strong><p>登录 Windows 后在后台启动，不打扰</p></div><label class="switch"><input type="checkbox" id="set-auto-launch" /><span></span></label></div>
                 <div class="switch-row"><div><strong>关闭窗口时最小化到托盘</strong><p>点 × 时窗口隐藏、程序继续运行，这样到点才能提醒你。关掉后点 × 将直接退出课铃，不再提醒。</p></div><label class="switch"><input type="checkbox" id="set-close-tray" /><span></span></label></div>
                 <div class="switch-row"><div><strong>桌面浮窗</strong><p>在桌面上常驻一小块，显示下一项任务和倒计时。可拖动、双击打开主窗口。</p>
-<p class="field-hint" id="float-window-hint">全屏看视频、打游戏、放 PPT 时会自动隐藏，退出全屏后自己回来。拖出屏幕或换了显示器，会回到主屏右下角。字号跟随上面「界面大小」这一档。</p></div>
+<p class="field-hint" id="float-window-hint">全屏看视频、打游戏、放 PPT 时会自动隐藏，退出全屏后自己回来。拖出屏幕或换了显示器，会回到主屏右下角。字号在「设置 → 字号」里单独调，不影响主界面。</p></div>
 <label class="switch"><input type="checkbox" id="set-float-window" /><span></span></label></div>
 <div class="switch-row"><div><strong>自动同步学习通</strong><p>已登录时按间隔检查新作业</p></div><label class="switch"><input type="checkbox" id="set-auto-sync" /><span></span></label></div>
                 <div class="field-block inline-field">
@@ -550,7 +550,7 @@
               </div>
 
               <div class="panel settings-panel about-panel">
-                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.10.2</span></div></div>
+                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.10.3</span></div></div>
                 <p>面向大学生的轻量课程任务提醒工具。非学习通官方产品，仅读取你本人有权访问的课程数据。</p>
                 <div class="about-links">
                   <button class="link-btn" id="btn-open-data-2"><svg><use href="#i-folder"/></svg>数据目录</button>
@@ -563,11 +563,20 @@
           <div class="panel settings-panel settings-wide">
             <div class="settings-title"><div><h2>界面与退出</h2><p>调大一点看得清，或者彻底停掉课铃</p></div><svg><use href="#i-sliders"/></svg></div>
             <div class="field-block">
-              <label class="field-label">界面大小</label>
-              <div class="segmented compact scale-row" id="ui-scale"></div>
-              <p class="field-note" id="ui-scale-hint">当前 标准 · 100%</p>
-              <p class="field-note" id="ui-scale-scope">这一档大小同时作用于：主界面 · 桌面浮窗 · 右下角提醒弹窗。改完不用重启。</p>
-              <p class="field-note">也可以用 <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> 调整，<kbd>Ctrl</kbd> + <kbd>0</kbd> 回到标准。</p>
+              <label class="field-label">字号</label>
+              <!-- 三处各自一档，排在同一块里：谁想大谁大，不用为了浮窗去改整个界面 -->
+              <div class="scale-matrix">
+                <span class="scale-matrix-label">主界面</span>
+                <div class="segmented compact scale-row" id="ui-scale"></div>
+                <span class="scale-matrix-value" id="ui-scale-hint">大 · 110%</span>
+                <span class="scale-matrix-label">桌面浮窗</span>
+                <div class="segmented compact scale-row" id="float-scale"></div>
+                <span class="scale-matrix-value" id="float-scale-hint">大 · 110%</span>
+                <span class="scale-matrix-label">提醒弹窗</span>
+                <div class="segmented compact scale-row" id="toast-scale"></div>
+                <span class="scale-matrix-value" id="toast-scale-hint">大 · 110%</span>
+              </div>
+              <p class="field-note" id="ui-scale-scope">三处各调各的，互不影响。主界面也能用 <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> 调，<kbd>Ctrl</kbd> + <kbd>0</kbd> 回到标准。</p>
               <button class="link-btn" id="btn-reopen-scale-guide">重新查看字号引导</button>
             </div>
             <div class="danger-row">
@@ -634,7 +643,7 @@
         <div><span class="modal-eyebrow">第一次使用</span><h2 id="scale-guide-title">先把字调到看得清</h2></div>
       </div>
       <div class="scale-guide-body">
-        <p class="scale-guide-tip">不同电脑的缩放比例不一样，字可能偏小或发虚。选一个你觉得清楚的大小，随时可以在「偏好设置 → 界面大小」里改。桌面浮窗和右下角提醒弹窗会用同一档大小，改一处就够。</p>
+        <p class="scale-guide-tip">不同电脑的缩放比例不一样，字可能偏小或发虚。选一个你觉得清楚的大小，随时可以在「偏好设置 → 界面大小」里改。这里调的是主界面；桌面浮窗和提醒弹窗的字号在「设置 → 字号」里各自单独调。</p>
         <div class="segmented scale-guide-options" id="scale-guide-options"></div>
         <p class="field-note" id="scale-guide-hint">当前 标准 · 100%</p>
         <div class="scale-guide-demo">

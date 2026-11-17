@@ -23,3 +23,4 @@ require('./state-reset-and-position.test.js');
 require('./wrong-questions.test.js');
 require('./media-proxy.test.js');
 require('./toast-layout.test.js');
+require('./scale-split.test.js');

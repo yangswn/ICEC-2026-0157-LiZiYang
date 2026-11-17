@@ -64,7 +64,7 @@ test('the two toast call sites pass the current ui scale', () => {
   const calls = mainCs.match(/new TrayToastForm\([^;]*\);/g) || [];
   assert.equal(calls.length, 2, '应该有两次弹窗调用');
   for (const call of calls) {
-    assert.ok(call.includes('CurrentUiScale()'), `调用要传当前缩放：${call.slice(0, 60)}`);
+    assert.ok(call.includes('CurrentToastScale()'), `调用要传弹窗字号：${call.slice(0, 60)}`);
   }
 });
 
@@ -90,25 +90,20 @@ test('fonts created by the layout are disposed with the form', () => {
 
 /* ------------------------------------------------- 设置整合（用户能看见） */
 
-test('the 界面大小 setting says which surfaces it controls', () => {
-  const at = html.indexOf('id="ui-scale-hint"');
-  assert.ok(at > 0, '要保留当前档位提示');
-  const near = html.slice(at, at + 900);
-  assert.ok(near.includes('浮窗'), '要写明影响桌面浮窗');
-  assert.ok(near.includes('提醒弹窗'), '要写明影响提醒弹窗');
+test('the three text sizes are grouped in one block, not scattered', () => {
+  // 1.10.3：三处各自独立，但控件必须排在同一块里，用户能一眼看全
+  assert.ok(html.includes('class="scale-matrix"'), '要有一个统一的字号区域');
+  const at = html.indexOf('class="scale-matrix"');
+  const block = html.slice(at, at + 1200);
+  assert.ok(block.includes('id="ui-scale"'), '主界面');
+  assert.ok(block.includes('id="float-scale"'), '桌面浮窗');
+  assert.ok(block.includes('id="toast-scale"'), '提醒弹窗');
 });
 
-test('the float window toggle says its text size follows 界面大小', () => {
+test('the float window toggle points at the float-specific size', () => {
   const at = html.indexOf('id="float-window-hint"');
   assert.ok(at > 0);
-  const block = html.slice(at, at + 600);
-  assert.ok(block.includes('界面大小'), '浮窗那栏要说明字号跟随同一个设置');
-});
-
-test('there is still exactly one place to change text size', () => {
-  // 只保留一个「界面大小」控件：不要再冒出一个"弹窗字号"或"浮窗字号"
-  const selects = (html.match(/id="ui-scale"/g) || []).length;
-  assert.equal(selects, 1, '界面上只能有一处字号设置');
-  assert.equal(html.includes('toast-scale'), false, '不要新增独立的弹窗字号设置');
-  assert.equal(html.includes('float-scale'), false, '不要新增独立的浮窗字号设置');
+  const block = html.slice(at, at + 700);
+  assert.ok(block.includes('字号'), '浮窗那栏要告诉用户字号在哪调');
+  assert.ok(block.includes('单独调'), '要说明它不和主界面联动');
 });
