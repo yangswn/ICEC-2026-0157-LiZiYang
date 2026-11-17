@@ -143,6 +143,10 @@
       if (Object.prototype.hasOwnProperty.call(patch, 'floatWindow')) {
         host('applyFloatWindow', Boolean(patch.floatWindow)).catch(() => {});
       }
+      // 界面大小也立刻生效：不然浮窗和提醒弹窗要等 30 秒轮询才变，看着像没反应
+      if (Object.prototype.hasOwnProperty.call(patch, 'uiScale')) {
+        host('applyUiScale', Number(patch.uiScale)).catch(() => {});
+      }
       return result;
     },
     chooseLogDir: () => host('chooseFolder'),

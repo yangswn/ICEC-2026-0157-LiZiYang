@@ -56,6 +56,8 @@ namespace ClassBell
         private string floatWindowPos = "";
         // 最近一次 /api/state 的 settings 节点：浮窗按 uiScale 缩放要用
         private Dictionary<string, object> latestSettings;
+        // 用户在设置页改完「界面大小」后立刻生效：轮询要 30 秒，等不了
+        private float latestUiScale;
         // 轻提示每个会话只弹一次
         private bool trayToastShown;
         private System.Windows.Forms.Timer trayKeepAliveTimer;
@@ -889,6 +891,15 @@ namespace ClassBell
                     // 设置页切换「关闭窗口时最小化到托盘」后，立刻更新宿主行为，
                     // 不必等 30 秒的状态轮询。
                     // 设置页切「桌面浮窗」后立刻生效，不必等 30 秒轮询
+                    // 界面大小：立刻同步给浮窗，之后弹出的提醒弹窗也用它
+                    case "applyUiScale":
+                        float requested = (float)Convert.ToDouble(args != null && args.Length > 0 ? args[0] : 1.1);
+                        if (requested < 0.8f) requested = 0.8f;
+                        if (requested > 1.8f) requested = 1.8f;
+                        latestUiScale = requested;
+                        if (floatWindow != null) floatWindow.ApplyScale(requested);
+                        Respond(id, true, null);
+                        break;
                     case "applyFloatWindow":
                         bool floatOn = Convert.ToBoolean(args != null && args.Length > 0 ? args[0] : true);
                         floatWindowEnabled = floatOn;
@@ -1083,6 +1094,8 @@ namespace ClassBell
                 {
                     var settings = state["settings"] as Dictionary<string, object>;
                     float scale = (float)Convert.ToDouble(settings != null && settings.ContainsKey("uiScale") ? settings["uiScale"] : 1.1);
+                    // 设置页刚改过的值优先，避免等 30 秒轮询
+                    if (latestUiScale > 0) return latestUiScale;
                     return scale > 0 ? scale : 1.1f;
                 }
             }
@@ -1167,7 +1180,7 @@ namespace ClassBell
                 {
                     "想找回来：右键托盘图标 → 桌面浮窗",
                     "也可以在设置页重新打开「桌面浮窗」"
-                });
+                }, CurrentUiScale());
                 toast.Show();
                 toast.BringToFront();
             }
@@ -1235,7 +1248,8 @@ namespace ClassBell
                 trayToastShown = true;
                 try
                 {
-                    var toast = new TrayToastForm();
+                    // 同样跟随界面大小：收进托盘时的提示不该比主界面小一号
+                var toast = new TrayToastForm(6000, null, null, CurrentUiScale());
                     toast.Show();
                     toast.BringToFront();
                 }
