@@ -7,10 +7,10 @@
 
 | 方式 | 下载 | 说明 |
 |---|---|---|
-| **安装版**（推荐） | [ClassBell-Setup-1.9.3.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.9.3/ClassBell-Setup-1.9.3.exe) · 33.9 MB | 双击安装、一路下一步，自动建快捷方式 |
-| **免安装版** | [ClassBell-Portable-1.9.3.zip](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.9.3/ClassBell-Portable-1.9.3.zip) · 32.7 MB | 解压即用、不写注册表；**zip 下载不会被浏览器拦** |
+| **安装版**（推荐） | [ClassBell-Setup-1.10.3.exe](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.10.3/ClassBell-Setup-1.10.3.exe) · 34.0 MB | 双击安装、一路下一步，自动建快捷方式 |
+| **免安装版** | [ClassBell-Portable-1.10.3.zip](https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.10.3/ClassBell-Portable-1.10.3.zip) · 32.1 MB | 解压即用、不写注册表；**zip 下载不会被浏览器拦** |
 
-> ⚠️ **下载时 Edge / Chrome 可能提示「通常不会下载 ClassBell-Setup-1.9.3.exe」** —— 点右侧「…」→「保留」即可。
+> ⚠️ **下载时 Edge / Chrome 可能提示「通常不会下载 ClassBell-Setup-1.10.3.exe」** —— 点右侧「…」→「保留」即可。
 > 原因有两个：**没有购买代码签名证书**；文件刚发布、下载量低，微软的信誉系统还不认识它。**不是病毒。**
 > 安装时若弹「未知发布者」，点「更多信息 → 仍要运行」。
 > **不想走这两步的话，直接用免安装版 zip** —— 浏览器不会拦 zip，解压双击 `ClassBell.exe` 就能用。
@@ -24,14 +24,14 @@
 | # | 原文要求 | 分值 | 现状 |
 |---|---|---|---|
 | ① | **连续 ≥7 天** Telemetry Logs（每日同步进 `process_logs/`）| 25 | ✅ **7 / 7 天**（11-09 ~ 11-15，一天没断）|
-| ② | **≥3 次** Git 迭代 Diff | 20 | ✅ **34 次**，每次都有独立提交和改动说明 |
+| ② | **≥3 次** Git 迭代 Diff | 20 | ✅ **38 次**，每次都有独立提交和改动说明 |
 | ③ | 源码 与 **8 位**真实用户反馈 | 15 | ✅ **8 位用户 / 23 条反馈**（2026-11-17 达成）|
 
 **三件最能说明这不是玩具的事：**
 
 1. **3 位同学装不上 → 查因 → 两次迭代 → 3/3 全部能用了。** 0/3 → 3/3，人名、截图、每一条原始报错都在 `feedback/`。
 2. **1 位同学读了源码，挑出 3 个真 bug** —— 月度重复的日期会永久漂移、编辑任务会清空已发提醒、补过期任务会立刻又生成"已逾期"。三处全修了，并新增 4 项回归测试。
-3. **34 次迭代里有 5 次是我自测发现的**（导出点了没反应 / 登录窗口每 6 秒自己弹出来 / 16 条已交作业被误判成待完成 / 浮窗隐藏 30 秒又自己冒出来 / 隐藏后找不到恢复入口），不是用户报的。
+3. **38 次迭代里有 6 次是我自测发现的**（导出点了没反应 / 登录窗口每 6 秒自己弹出来 / 16 条已交作业被误判成待完成 / 浮窗隐藏 30 秒又自己冒出来 / 隐藏后找不到恢复入口 / 错题本里公式图全裂），不是用户报的。
 
 > 剩下的缺口只有两个：日志还差 3 天（11-15 满 7 天），用户还差 3 位。
 
@@ -83,7 +83,7 @@
 
 > 📌 **版本号与迭代数不是一一对应**：`1.0.5`、`1.0.8` 两次只重新打包、没有独立提交（跳号）；
 > `13c370a`（版本号改用语义化版本）和 `c6ee484`（单向同步脚本）属工程规范，不算功能迭代。
-> 所以「**34 次迭代**」对应的是 **34 个有实质改动的提交**，不是 34 个版本号 —— 数提交最准（`git log --oneline`）。
+> 所以「**38 次迭代**」对应的是 **38 个有实质改动的提交**，不是 38 个版本号 —— 数提交最准（`git log --oneline`）。
 
 ### 第 12 次的安全加固明细（4 项 P0 + 相关项）
 
@@ -137,7 +137,7 @@
 | 错误记录 | 7 条 | 主要是学习通 `gas/taskmsg` 返回 **HTTP 403** |
 | 同步次数 | 7 次 | 同上 |
 | 活跃天数 | **1 天** | `index.json` 的 `activeDays` |
-| 安装包 | `ClassBell-Setup-1.9.3.exe`（35,628,032 字节）| 已发布到 Release，可直接下载 |
+| 安装包 | `ClassBell-Setup-1.10.3.exe`（35,659,264 字节）| 已发布到 Release，可直接下载 |
 | 单元测试 | **44 项，全通过** | `node tests/run-all.js` 实跑：44 pass / 0 fail |
 | 登录识别 | 17 门课程 / 30 条作业 | 自述，未复核 |
 | 现有数据 | 32 项任务 / 4 道错题 / 2 条通知 | 自述，未复核 |
@@ -182,7 +182,7 @@ Cookie 改由本机保存，重启自动恢复。
 └── 用户反馈-收集表.md             ← 8 位用户的收集模板与话术
 ```
 
-> 源码就在本目录 `源码/`；带完整 Git 历史（34 次提交）的版本在 `yangswn/ClassBell`。
+> 源码就在本目录 `源码/`；带完整 Git 历史（38 次提交）的版本在 `yangswn/ClassBell`。
 > 每日运行日志在 `02-20Days-Challenge/process_logs/`。
 
 ---
@@ -253,9 +253,9 @@ Win11 一般自带；**Win10、精简系统、Ghost 系统、Windows 沙盒不�
 
 | 项 | 值 |
 |---|---|
-| 文件 | `ClassBell-Setup-1.9.3.exe` |
-| 大小 | **35,628,032 字节**（33.9 MiB）|
-| 下载 | <https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.9.3/ClassBell-Setup-1.9.3.exe> |
+| 文件 | `ClassBell-Setup-1.10.3.exe` |
+| 大小 | **35,659,264 字节**（34.0 MiB）|
+| 下载 | <https://github.com/yangswn/ICEC-2026-0157-LiZiYang/releases/download/v1.10.3/ClassBell-Setup-1.10.3.exe> |
 | 内容核查 | 不含 cookie / session / profile 等登录态数据 ✅（1.0.0 已核）|
 
 > **哈希不写在这份 README 里。**
@@ -294,10 +294,10 @@ Win11 一般自带；**Win10、精简系统、Ghost 系统、Windows 沙盒不�
 | 内容 | 放在哪 | 说明 |
 |---|---|---|
 | **源代码** | 本目录 `源码/`（1.2.5，110 个文件）| 含 `desktop/` `server/` `src/` `docs/` `tests/` `installer/` `tools/`；已排除 `node_modules`、`dist`、`.git`。**含 `tools/MicrosoftEdgeWebview2Setup.exe`，可重建安装包** |
-| **完整提交历史** | 独立仓库 `yangswn/ClassBell`（34 次提交，私有）| 本目录的 `源码/` 是导出快照，不带历史，**Commit 与 Diff 核验看那个仓库** |
+| **完整提交历史** | 独立仓库 `yangswn/ClassBell`（38 次提交，私有）| 本目录的 `源码/` 是导出快照，不带历史，**Commit 与 Diff 核验看那个仓库** |
 | **每日运行日志** | 本仓库 `02-20Days-Challenge/process_logs/` | 对应原文「每日同步进 process_logs/」|
 
-> **两处都有，是为了互补**：`源码/` 让评审在一个仓库里就能逐个点开文件；`ClassBell` 提供可点击的 34 次提交与 Diff，能看出每一次改动的动机。
+> **两处都有，是为了互补**：`源码/` 让评审在一个仓库里就能逐个点开文件；`ClassBell` 提供可点击的 38 次提交与 Diff，能看出每一次改动的动机。
 
 ---
 
