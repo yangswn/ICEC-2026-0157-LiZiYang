@@ -1024,3 +1024,15 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid #d8d2c4; border
 .mistake-option { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--ink-2); }
 .mistake-option .opt-key { flex: none; width: 16px; font-weight: 700; color: var(--muted); }
 .mistake-option .opt-body { flex: 1; min-width: 0; word-break: break-word; }
+
+/* 图片取不到时的占位：小、灰、不占版面，不影响同卡片其它内容 */
+.cx-img-failed {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 2px 0;
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--muted-2);
+  background: var(--paper-2);
+}

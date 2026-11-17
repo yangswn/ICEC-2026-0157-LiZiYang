@@ -9,6 +9,7 @@ const { Telemetry } = require('./telemetry');
 const { ReminderScheduler } = require('./scheduler');
 const { ChaoxingService, LOGIN_URL, HOME_URL, cleanError } = require('./chaoxing');
 const { parseMistakeText, hashKey } = require('./chaoxing-parser');
+const { MediaService, MediaError } = require('./media');
 
 function argValue(name, fallback = '') {
   const hit = process.argv.find((a) => a.startsWith(`${name}=`));
@@ -34,6 +35,8 @@ const estimate = require('./estimate');
 const ollama = require('./ollama');
 
 const chaoxing = new ChaoxingService({ telemetry });
+// 学习通图片代理：错题本里的公式图靠它取（详见 server/media.js 顶部的说明）
+const media = new MediaService({ dataDir, telemetry });
 const clients = new Set();
 let syncPromise = null;
 // 详情补全进度（null = 没在补全）；通过 state 广播推给界面
@@ -499,6 +502,31 @@ async function handleApi(req, res) {
       auth: await chaoxing.getAuthStatus(),
       logs: telemetry.summary()
     });
+  }
+  if (p === '/api/media' && method === 'GET') {
+    const raw = String(url.searchParams.get('u') || '');
+    try {
+      const item = await media.get(raw);
+      // 图片走二进制返回；缓存一天，让 WebView2 自己再缓存一层，
+      // 界面来回切页就不会反复打到学习通。
+      res.writeHead(200, {
+        'Content-Type': item.contentType,
+        'Cache-Control': 'public, max-age=86400',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Length': item.body.length
+      });
+      res.end(item.body);
+      return true;
+    } catch (error) {
+      const code = error instanceof MediaError ? error.code : 'MEDIA_FETCH_FAILED';
+      // 只记次数和错误码，不记图片地址（地址里可能带作业信息）
+      log("media_fetch_failed", { ok: false, error, meta: { code } });
+      return json(res, code === 'INVALID_MEDIA_URL' ? 400 : 502, {
+        ok: false,
+        code,
+        message: code === 'INVALID_MEDIA_URL' ? '只允许学习通图片地址' : '图片暂时取不到'
+      });
+    }
   }
   if (p === '/api/state' && method === 'GET') return json(res, 200, statePayload());
   if (p === '/api/logs' && method === 'GET') {

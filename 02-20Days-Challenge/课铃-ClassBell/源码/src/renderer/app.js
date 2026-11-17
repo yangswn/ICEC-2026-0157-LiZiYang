@@ -398,6 +398,7 @@ function renderAll() {
   renderIntegration();
   renderNotices();
   renderGear();
+  installImageFallback();
   renderMistakes();
   renderSettings();
   renderLogs();
@@ -1070,14 +1071,40 @@ function itemsScore(item) {
   return `得分 ${item.score}${full}`;
 }
 
+/**
+ * 单张图片加载失败时，把它换成一个不占地方的小占位。
+ *
+ * 用事件委托（捕获阶段）而不是给每个 img 写 onerror ——
+ * 页面 CSP 是 script-src 'self'，内联事件处理器会被拦掉。
+ */
+function installImageFallback() {
+  if (window.__campusImgFallbackReady) return;
+  window.__campusImgFallbackReady = true;
+  document.addEventListener('error', (event) => {
+    const el = event.target;
+    // 兼容两种文件名：新代码用 cx-inline-img，旧数据也可能写成别的 img
+    if (!el || el.tagName !== 'IMG') return;
+    if (!el.classList.contains('cx-inline-img')) return;
+    const hint = document.createElement('span');
+    hint.className = 'cx-img-failed';
+    hint.setAttribute('data-cx-img-failed', '1');
+    hint.textContent = '图片未加载';
+    // 只替换这一张，其它图片和文字照常显示
+    if (el.parentNode) el.parentNode.replaceChild(hint, el);
+  }, true);
+}
+
 function mistakeCardHTML(item) {
   // 题干优先用富文本：不少题的公式就是图片，纯文本会只剩 [图]
-  const stemHtml = item.stemHtml || esc(item.question || '');
+  // 题干/选项里的图片是学习通外链，CSP 只允许同源，所以统一改写成走本地代理；
+  // 改写不了的（非学习通域名）会被直接去掉，不留一张注定裂开的图。
+  const media = window.CampusMediaSrc || { rewriteImageSources: (html) => html, proxyImageSrc: () => '' };
+  const stemHtml = media.rewriteImageSources(item.stemHtml) || esc(item.question || '');
   const optionHTML = Array.isArray(item.options) && item.options.length
     ? `<div class="mistake-options">${item.options.map((opt) => `
         <div class="mistake-option">
           <span class="opt-key">${esc(opt.key || '')}</span>
-          <span class="opt-body">${opt.html || esc(opt.text || '')}</span>
+          <span class="opt-body">${media.rewriteImageSources(opt.html) || esc(opt.text || '')}</span>
         </div>`).join('')}</div>`
     : '';
   const metaBits = [];
