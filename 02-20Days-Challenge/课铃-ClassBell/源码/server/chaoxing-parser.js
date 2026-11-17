@@ -648,6 +648,352 @@ function parseMistakeLines(lines, base) {
   return out;
 }
 
+/* ---------------------------------------------------- wrong questions (批改详情页) */
+
+/**
+ * 学习通批改详情页里，每题外面那层容器的 class。改版时这里会变。
+ * 留成常量是为了以后改一处就够。
+ */
+const QUESTION_BLOCK_CLASS = 'singleQuesId';
+
+/** 学习通给"答错"的题打的 class（在顶部答题卡导航条上）。 */
+const WRONG_MARK_CLASS = 'wrongRed';
+
+/** 题型：优先用题干里写的中文标签，qType 只作兜底（实测 0=单选、3=判断）。 */
+const QTYPE_LABELS = {
+  0: '单选题',
+  1: '多选题',
+  2: '填空题',
+  3: '判断题',
+  4: '简答题',
+  5: '论述题',
+  6: '计算题',
+  7: '名词解释',
+  8: '其他'
+};
+
+function escapeHtml(input) {
+  return String(input || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * 把相对地址补成绝对地址。学习通的图片是 //host/path 这种协议相对写法，
+ * 不补的话 WebView2 里会当成 file:// 加载不出来。
+ */
+function absoluteAssetUrl(base, href) {
+  const raw = String(href || '').trim();
+  if (!raw) return '';
+  if (/^data:/i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('//')) return 'https:' + raw;
+  try {
+    return new URL(raw, base || 'https://mooc1.chaoxing.com').toString();
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * 删掉给读屏器用的隐藏 span。
+ *
+ * 为什么必须先删：学习通在「正确答案」span 后面插了一段
+ * span.element-invisible-hidden 写着 "D; "，
+ * 不删的话正确答案会被读成 "C D"，错题本里就会显示错的答案。
+ */
+function stripInvisibleSpans(html) {
+  return String(html || '').replace(/<span[^>]*class="[^"]*element-invisible-hidden[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '');
+}
+
+/**
+ * 从 startIndex 处的标签开始，按标签配对找到它的闭合位置。
+ *
+ * 为什么不用非贪婪正则：题干里有嵌套 div/p（公式和图片各占一层），
+ * 非贪婪的 <div[^>]*>([\s\S]*?)<\/div> 会提前截断，把后半句题干吃掉。
+ *
+ * @returns {number} 闭合标签结束后的下标；找不到返回 -1
+ */
+function endOfElement(html, startIndex, tag) {
+  const openRe = new RegExp('<' + tag + '\\b', 'gi');
+  const closeRe = new RegExp('</' + tag + '\\s*>', 'gi');
+  let depth = 0;
+  let i = startIndex;
+  while (i < html.length) {
+    openRe.lastIndex = i;
+    closeRe.lastIndex = i;
+    const open = openRe.exec(html);
+    const close = closeRe.exec(html);
+    if (!close) return -1;
+    if (open && open.index < close.index) {
+      depth += 1;
+      i = open.index + open[0].length;
+    } else {
+      depth -= 1;
+      i = close.index + close[0].length;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 从 html 里找出所有 class 含 name 的元素起始位置。
+ * 只返回起点，具体到哪儿结束由调用方决定（题目块是"到下一块为止"）。
+ */
+function findElementsByClass(html, name) {
+  const re = new RegExp('<([a-z]+)[^>]*class="[^"]*\\b' + name + '\\b[^"]*"[^>]*>', 'gi');
+  const out = [];
+  let m;
+  while ((m = re.exec(html))) out.push({ at: m.index, tagName: m[1].toLowerCase(), raw: m[0] });
+  return out;
+}
+
+/**
+ * 把一小段 HTML 变成"安全的内联内容"：
+ *   - 只保留图片（地址补成绝对），其余标签全部去掉；
+ *   - 文本部分先解码实体再转义，避免把原来的尖括号带进页面；
+ *   - 图片位置在纯文本里写成 [图]，方便复制和搜索。
+ *
+ * 为什么存 HTML 而不只是纯文本：题干和选项里有大量公式图
+ * （第 10 题整道题的题干就是一张图），只存文字会变成空白。
+ */
+function inlineContent(fragment, base) {
+  const source = String(fragment || '');
+  const images = [];
+  let text = '';
+  let html = '';
+
+  const imgRe = /<img\b[^>]*>/gi;
+  let last = 0;
+  let m;
+  const pushText = (chunk) => {
+    const plain = stripTags(chunk);
+    if (!plain) return;
+    text += plain;
+    html += escapeHtml(plain);
+  };
+  while ((m = imgRe.exec(source))) {
+    pushText(source.slice(last, m.index));
+    const src = absoluteAssetUrl(base, attr(m[0], 'src'));
+    if (src) {
+      images.push(src);
+      text += '[图]';
+      html += '<img class="cx-inline-img" src="' + escapeHtml(src) + '" alt="题目图片" loading="lazy" />';
+    }
+    last = m.index + m[0].length;
+  }
+  pushText(source.slice(last));
+
+  return { text: text.replace(/\s+/g, ' ').trim(), html: html.trim(), images };
+}
+
+/**
+ * 顶部答题卡导航条：每题一个 div，id 就是题目 id，答错的带 wrongRed。
+ *
+ * 这是最可靠的判错信号 —— 学习通自己判好的，不依赖"得 0 分"这类文字，
+ * 主观题给部分分时也不会误判。
+ *
+ * @returns {Map<string, boolean>} 题目 id -> 是否答错
+ */
+function collectWrongVerdicts(html) {
+  const map = new Map();
+  const re = /<div\s+id="(\d+)"\s+class="([^"]*)"[^>]*>([\s\S]{0,400}?)<\/div>/gi;
+  const wrongRe = new RegExp('\\b' + WRONG_MARK_CLASS + '\\b');
+  let m;
+  while ((m = re.exec(html))) {
+    const id = m[1];
+    const cls = m[2] || '';
+    const inner = m[3] || '';
+    if (!/\ballQuestion\b/.test(inner) && !/swiper-slide/.test(cls)) continue;
+    if (wrongRe.test(cls) || wrongRe.test(inner)) map.set(id, true);
+    else if (/\bactiveGreen\b/.test(cls) || /\bactiveGreen\b/.test(inner)) map.set(id, false);
+  }
+  return map;
+}
+
+/**
+ * 把整页切成一道一道的题。
+ *
+ * 每道题的容器是 div.ans-cc.fontLabel.singleQuesId，一直延伸到下一个同类容器为止
+ * （页面结构就是这样平铺的，没有更明确的边界）。
+ */
+function splitQuestionBlocks(html) {
+  const starts = findElementsByClass(html, QUESTION_BLOCK_CLASS);
+  const out = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const from = starts[i].at;
+    const to = i + 1 < starts.length ? starts[i + 1].at : html.length;
+    out.push({ tag: starts[i].raw, body: html.slice(from, to) });
+  }
+  return out;
+}
+
+/** 从 "(单选题，7.6  分)" 里取出题型和该题满分。 */
+function parseStemMeta(grayText) {
+  const text = stripTags(grayText);
+  const label = /(单选题|多选题|判断题|填空题|简答题|论述题|计算题|名词解释|其他)/.exec(text);
+  const full = /([\d]+(?:\.[\d]+)?)\s*分/.exec(text);
+  return {
+    type: label ? label[1] : '',
+    fullScore: full ? Number(full[1]) : null
+  };
+}
+
+/** 取某个 class 元素内部的原始 HTML（用于题干/选项/解析），取不到返回空串。 */
+function firstElementInner(html, name) {
+  const found = findElementsByClass(html, name)[0];
+  if (!found) return '';
+  const end = endOfElement(html, found.at, found.tagName);
+  if (end < 0) return '';
+  const openEnd = html.indexOf('>', found.at);
+  if (openEnd < 0) return '';
+  return html.slice(openEnd + 1, end - (found.tagName.length + 3));
+}
+
+/**
+ * 解析批改详情页里的全部题目。
+ *
+ * 返回每道题的结构化结果，isWrong 表示这道题是否答错。
+ * 拿不到「正确答案」也要照常返回（主观题可能只给分数）—— 不能因为缺一个字段就丢题。
+ *
+ * @param {string} html 批改详情页 HTML
+ * @param {string} [base] 用来补全相对地址的基准 URL
+ * @returns {Array<object>}
+ */
+function parseWrongQuestions(html, base) {
+  const source = stripInvisibleSpans(html);
+  const verdicts = collectWrongVerdicts(source);
+  const blocks = splitQuestionBlocks(source);
+  const out = [];
+
+  blocks.forEach((block, blockIndex) => {
+    const tag = block.tag || '';
+    const body = block.body || '';
+    const idMatch = /\bdata="(\d+)"/.exec(tag);
+    const id = idMatch ? idMatch[1] : '';
+    const qTypeMatch = /\bqType="(\d+)"/.exec(tag);
+    const qType = qTypeMatch ? qTypeMatch[1] : '';
+
+    // 题号：stemDiv 开头就是 "10."
+    const stemDiv = firstElementInner(body, 'stemDiv');
+    const noMatch = /^(\d+)\s*\./.exec(stripTags(stemDiv));
+    const questionNo = noMatch ? Number(noMatch[1]) : (blockIndex + 1);
+
+    const grayMatch = /<span[^>]*class="[^"]*stemGray[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(body);
+    const meta = parseStemMeta(grayMatch ? grayMatch[1] : '');
+
+    const stemRaw = firstElementInner(body, 'qtContent') || stemDiv;
+    const stem = inlineContent(stemRaw, base);
+
+    // 选项：每个 div.optionCon 装一个选项，内容在 div.ptag 或 p.qtDetail 里
+    const options = [];
+    const optionDivInner = firstElementInner(body, 'optionDiv');
+    if (optionDivInner) {
+      const starts = findElementsByClass(optionDivInner, 'optionCon');
+      starts.forEach((start, i) => {
+        const end = i + 1 < starts.length ? starts[i + 1].at : optionDivInner.length;
+        const chunk = optionDivInner.slice(start.at, end);
+        const inner = firstElementInner(chunk, 'qtDetail') || firstElementInner(chunk, 'ptag') || chunk;
+        const content = inlineContent(inner, base);
+        const keyMatch = /^([A-Za-z])\s*[.、．]/.exec(content.text);
+        options.push({
+          key: keyMatch ? keyMatch[1].toUpperCase() : String.fromCharCode(65 + i),
+          text: content.text,
+          html: content.html,
+          images: content.images
+        });
+      });
+    }
+
+    const correctMatch = /<span[^>]*class="[^"]*rightAnswerContent[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(body);
+    const correctAnswer = correctMatch ? stripTags(correctMatch[1]) : '';
+
+    const myMatch = /<span[^>]*class="[^"]*\bstuAnswerContent\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(body);
+    const myAnswer = myMatch ? stripTags(myMatch[1]) : '';
+
+    const scoreMatch = /得\s*<span[^>]*class="[^"]*font40[^"]*"[^>]*>\s*([\d.]+)\s*<\/span>\s*分/.exec(body);
+    const score = scoreMatch ? Number(scoreMatch[1]) : null;
+
+    const analysisRaw = firstElementInner(body, 'qtAnalysis');
+    const analysis = analysisRaw
+      ? inlineContent(analysisRaw.replace(/^[\s\S]*?答案解析[:：]/, ''), base)
+      : { text: '', html: '', images: [] };
+
+    // 判错：三个信号取或。任何一个成立就算错 —— 宁可多记一道，
+    // 也别因为改版少了一种标记就把真错题漏掉。
+    const navVerdict = verdicts.has(id) ? verdicts.get(id) : null;
+    const markedWrongByIcon = /wrong_v1\.png/i.test(body);
+    const lostPoints = Number.isFinite(score) && Number.isFinite(meta.fullScore) && score < meta.fullScore - 0.001;
+    const answersDiffer = Boolean(correctAnswer && myAnswer && correctAnswer !== myAnswer);
+    const isWrong = navVerdict === true || markedWrongByIcon || lostPoints || answersDiffer;
+
+    out.push({
+      id,
+      questionNo,
+      type: meta.type || QTYPE_LABELS[qType] || '',
+      qType,
+      stem: stem.text,
+      stemHtml: stem.html,
+      stemImages: stem.images,
+      options,
+      correctAnswer,
+      myAnswer,
+      score: Number.isFinite(score) ? score : null,
+      fullScore: Number.isFinite(meta.fullScore) ? meta.fullScore : null,
+      analysis: analysis.text,
+      analysisHtml: analysis.html,
+      isWrong
+    });
+  });
+
+  return out;
+}
+
+/**
+ * 解析"骨架页"：拿到 workAnswerId、总分，以及拼批改详情页要用的参数。
+ *
+ * 这一层只负责取数，不发请求。拿不到 workAnswerId 时返回 ok:false，
+ * 由调用方决定降级（比如改用页面里的 doHomeWork 链接再试一次）。
+ */
+function parseWorkSkeleton(html) {
+  const text = String(html || '');
+  const scoreMatch = /<p[^>]*class="[^"]*Number[^"]*"[^>]*>([\s\S]*?)<\/p>/i.exec(text);
+  const scoreDigits = scoreMatch ? /([\d]+(?:\.[\d]+)?)/.exec(stripTags(scoreMatch[1])) : null;
+  const score = scoreDigits ? Number(scoreDigits[1]) : null;
+
+  const answerIdMatch = /workAnswerId=(\d+)/.exec(text);
+  const workAnswerId = answerIdMatch ? answerIdMatch[1] : '';
+
+  // look() 里那条 URL 把参数都写全了，直接从它身上取，比自己拼更不容易错
+  const lookMatch = /work\/phone\/selectWorkQuestionYiPiYue\?([^'"\s<]+)/.exec(text);
+  const query = lookMatch ? lookMatch[1].replace(/&amp;/g, '&') : '';
+  const params = new URLSearchParams(query);
+  const pick = (name) => params.get(name) || '';
+  const hidden = (name) => {
+    const m = new RegExp('id="' + name + '"[^>]*value="([^"]*)"').exec(text);
+    return m ? m[1] : '';
+  };
+
+  const countsMatch = /共\s*(\d+)\s*题[，,]?\s*客观题\s*(\d+)\s*道[，,]?\s*主观题\s*(\d+)\s*道/.exec(stripTags(text));
+
+  return {
+    ok: Boolean(workAnswerId),
+    workAnswerId,
+    score: Number.isFinite(score) ? score : null,
+    courseId: pick('courseId') || hidden('courseId'),
+    classId: pick('classId') || hidden('classId'),
+    workId: pick('workId') || hidden('workId'),
+    total: countsMatch ? Number(countsMatch[1]) : null,
+    objective: countsMatch ? Number(countsMatch[2]) : null,
+    subjective: countsMatch ? Number(countsMatch[3]) : null,
+    // 满分作业没有错题，调用方据此跳过详情请求
+    isFullScore: Number.isFinite(score) && score >= 99.999
+  };
+}
+
 module.exports = {
   extractDeadline,
   parseTimeValue,
@@ -666,5 +1012,8 @@ module.exports = {
   parseNoticeFeed,
   parseNoticeHtml,
   parseMistakeHtml,
-  parseMistakeText
+  parseMistakeText,
+  parseWrongQuestions,
+  parseWorkSkeleton,
+  stripInvisibleSpans
 };

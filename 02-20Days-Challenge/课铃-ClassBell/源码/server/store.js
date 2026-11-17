@@ -216,6 +216,16 @@ function normalizeGear(input, existing = null) {
   };
 }
 
+/**
+ * 归一化一道错题。
+ *
+ * 一律显式取字段（白名单），不用 {...input} —— 用整体复制的话，
+ * 调用方多带的脏字段会被写进 data.json，而且以后加字段时很容易漏掉该清的。
+ *
+ * @param {object} input 调用方给的字段
+ * @param {object|null} existing 已有的记录（编辑时用来兜底）
+ * @returns {object}
+ */
 function normalizeMistake(input, existing = null) {
   const base = existing || {};
   const question = cleanText(input.question ?? base.question, 2000);
@@ -226,6 +236,25 @@ function normalizeMistake(input, existing = null) {
     course: cleanText(input.course ?? base.course, 80),
     title: cleanText(input.title ?? base.title, 160),
     question,
+    // 题号/题型/得分：抓取时能拿到，手动录入时为空
+    questionNo: Number.isFinite(Number(input.questionNo ?? base.questionNo))
+      ? Math.max(0, Math.round(Number(input.questionNo ?? base.questionNo)))
+      : 0,
+    type: cleanText(input.type ?? base.type, 20),
+    score: Number.isFinite(Number(input.score ?? base.score)) ? Number(input.score ?? base.score) : null,
+    fullScore: Number.isFinite(Number(input.fullScore ?? base.fullScore)) ? Number(input.fullScore ?? base.fullScore) : null,
+    // 题干富文本：只保留图片和文字（解析阶段已经按白名单清洗过），
+    // 因为不少题目的公式就是图片，纯文本会只剩 [图]
+    stemHtml: cleanText(input.stemHtml ?? base.stemHtml, 4000),
+    // 选项：{ key, text, html, images }
+    options: (Array.isArray(input.options ?? base.options) ? (input.options ?? base.options) : [])
+      .slice(0, 12)
+      .map((opt) => ({
+        key: cleanText(opt && opt.key, 4),
+        text: cleanText(opt && opt.text, 400),
+        html: cleanText(opt && opt.html, 1600),
+        images: Array.isArray(opt && opt.images) ? opt.images.slice(0, 6).map((u) => cleanText(u, 600)) : []
+      })),
     myAnswer: cleanText(input.myAnswer ?? base.myAnswer, 800),
     correctAnswer: cleanText(input.correctAnswer ?? base.correctAnswer, 800),
     analysis: cleanText(input.analysis ?? base.analysis, 1200),

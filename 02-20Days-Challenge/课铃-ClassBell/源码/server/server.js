@@ -830,6 +830,11 @@ async function handleApi(req, res) {
 
   /* ----------------------------------------------------------- mistakes */
 
+  if (p === '/api/mistakes' && method === 'GET') {
+    // 错题含真实作答，只在本地返回，不进 telemetry 明细
+    const summary = store.mistakeSummary();
+    return json(res, 200, { ok: true, items: store.state.mistakes, summary });
+  }
   if (p === '/api/mistakes' && method === 'POST') {
     const body = await readJsonObject(req);
     const result = store.addMistake({ ...body, source: body.source === 'chaoxing' ? 'chaoxing' : 'manual' });
@@ -937,18 +942,36 @@ async function handleApi(req, res) {
   }
   if (p === '/api/mistakes/extract' && method === 'POST') {    const started = Date.now();
     try {
-      const result = await chaoxing.collectMistakes(store.state.tasks, { limit: 12 });
+      // 已经归档过的题不再重复请求：第二次点"从学习通归档"不会把作业重拉一遍
+      const knownKeys = new Set(store.state.mistakes.map((m) => m.sourceKey).filter(Boolean));
+      // sourceKey 形如 cx:wrong:workId:qid，从中还原已经抓过哪几份作业
+      const knownWorkIds = new Set(store.state.mistakes
+        .map((m) => /^cx:wrong:(\d+):/.exec(m.sourceKey || ''))
+        .filter(Boolean)
+        .map((hit) => hit[1]));
+      const result = await chaoxing.collectMistakes(store.state.tasks, { limit: 12, knownKeys, knownWorkIds });
       const stats = store.addMistakes(result.mistakes || []);
       log('mistakes_extracted', {
         durationMs: Date.now() - started,
         meta: { checked: result.checked, found: result.found, added: stats.added }
       });
       broadcastState();
+      const runStats = result.stats || {};
+      // 提示要说清楚"为什么没抓到"：满分跳过、解析失败、还是真的没错题
+      let message = `检查 ${result.checked} 份作业，归档 ${stats.added} 道错题。`;
+      if (!stats.added) {
+        const parts = [];
+        if (runStats.skippedFull) parts.push(`${runStats.skippedFull} 份满分（没有错题）`);
+        if (runStats.parseMiss) parts.push(`${runStats.parseMiss} 份解析失败`);
+        if (runStats.failed) parts.push(`${runStats.failed} 份读取失败`);
+        message = parts.length
+          ? `检查 ${result.checked} 份作业：${parts.join('，')}。`
+          : `检查 ${result.checked} 份作业，没有识别到可归档的错题；可在页面里手动添加。`;
+      }
       return json(res, 200, {
         ok: true, checked: result.checked, found: result.found, added: stats.added,
-        message: result.found
-          ? `检查 ${result.checked} 份作业，归档 ${stats.added} 道错题。`
-          : `检查 ${result.checked} 份作业，没有识别到可归档的错题；可在页面里手动添加。`
+        stats: runStats,
+        message
       });
     } catch (error) {
       log('mistakes_extract_error', { ok: false, error, durationMs: Date.now() - started });

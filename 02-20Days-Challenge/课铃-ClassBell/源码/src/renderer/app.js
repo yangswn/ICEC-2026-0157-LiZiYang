@@ -1064,19 +1064,40 @@ function renderGear() {
     : '<div class="empty-row">还没有登记器材。点“登记借出”记录第一件。</div>';
 }
 
+/** 得分文案：0/7.7 这种要能看出"丢了分"，不要只写 0。 */
+function itemsScore(item) {
+  const full = Number.isFinite(item.fullScore) ? `/${item.fullScore}` : '';
+  return `得分 ${item.score}${full}`;
+}
+
 function mistakeCardHTML(item) {
+  // 题干优先用富文本：不少题的公式就是图片，纯文本会只剩 [图]
+  const stemHtml = item.stemHtml || esc(item.question || '');
+  const optionHTML = Array.isArray(item.options) && item.options.length
+    ? `<div class="mistake-options">${item.options.map((opt) => `
+        <div class="mistake-option">
+          <span class="opt-key">${esc(opt.key || '')}</span>
+          <span class="opt-body">${opt.html || esc(opt.text || '')}</span>
+        </div>`).join('')}</div>`
+    : '';
+  const metaBits = [];
+  if (item.questionNo) metaBits.push(`第 ${item.questionNo} 题`);
+  if (item.type) metaBits.push(item.type);
+  if (Number.isFinite(item.score)) metaBits.push(itemsScore(item));
   return `
     <div class="mistake-card" data-id="${esc(item.id)}">
       <div class="mistake-head">
         <span class="mistake-course">${esc(item.course || '未分课程')}</span>
         ${item.title ? `<span class="mistake-src">${esc(item.title)}</span>` : ''}
         <span class="mistake-src">· ${esc(relativeSince(item.wrongAt))}</span>
+        ${metaBits.length ? `<span class="mistake-src">· ${esc(metaBits.join(' · '))}</span>` : ''}
         <span class="notice-chip ${item.source === 'chaoxing' ? 'cx' : ''}">${item.source === 'chaoxing' ? '自动归档' : '手动记录'}</span>
         <span style="margin-left:auto"></span>
         <button class="task-action" data-act="edit-mistake" data-id="${esc(item.id)}" title="编辑" aria-label="编辑"><svg><use href="#i-edit"/></svg></button>
         <button class="task-action danger" data-act="delete-mistake" data-id="${esc(item.id)}" title="删除" aria-label="删除"><svg><use href="#i-trash"/></svg></button>
       </div>
-      <div class="mistake-q">${esc(item.question)}</div>
+      <div class="mistake-q cx-stem">${stemHtml}</div>
+      ${optionHTML}
       <div class="mistake-answers">
         <div class="answer-box wrong"><span>我的答案</span>${esc(item.myAnswer || '未记录')}</div>
         <div class="answer-box right"><span>正确答案</span>${esc(item.correctAnswer || '未记录')}</div>

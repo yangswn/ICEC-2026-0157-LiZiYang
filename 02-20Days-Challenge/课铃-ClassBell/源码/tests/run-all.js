@@ -20,3 +20,4 @@ require('./float-window.test.js');
 require('./float-window-recover.test.js');
 require('./occurrence-reset.test.js');
 require('./state-reset-and-position.test.js');
+require('./wrong-questions.test.js');

@@ -15,7 +15,7 @@ namespace ClassBell.Setup
     internal static class Program
     {
         internal const string AppName = "课铃 ClassBell";
-        internal const string Version = "1.9.3";
+        internal const string Version = "1.10.0";
         internal const string Publisher = "ClassBell";
         internal const string ExeName = "ClassBell.exe";
         internal const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassBell";
