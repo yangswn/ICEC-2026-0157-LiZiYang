@@ -151,6 +151,20 @@
       if (Object.prototype.hasOwnProperty.call(patch, 'toastScale')) {
         host('applySurfaceScale', 'toast', Number(patch.toastScale)).catch(() => {});
       }
+      // 浮窗条数 / 透明度：拖完立刻生效，不用等下一轮轮询。
+      // 两个值一起传，宿主一次重排就够。
+      if (Object.prototype.hasOwnProperty.call(patch, 'floatTaskCount')
+          || Object.prototype.hasOwnProperty.call(patch, 'floatOpacity')) {
+        // 没提交的那一项传 null：宿主那边表示「这一项没变，别动它」。
+        // 以前这里填默认值，导致只调透明度时条数被重置成 1。
+        const hasCount = Object.prototype.hasOwnProperty.call(patch, 'floatTaskCount');
+        const hasOpacity = Object.prototype.hasOwnProperty.call(patch, 'floatOpacity');
+        const count = hasCount ? Number(patch.floatTaskCount) : null;
+        const opacity = hasOpacity ? Number(patch.floatOpacity) : null;
+        host('applyFloatOptions',
+          Number.isFinite(count) ? count : null,
+          Number.isFinite(opacity) ? opacity : null).catch(() => {});
+      }
       return result;
     },
     chooseLogDir: () => host('chooseFolder'),

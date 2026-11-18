@@ -85,7 +85,7 @@
         <div class="sidebar-foot">
           <button class="side-quit" id="btn-quit-side" title="终止课铃并关闭后台服务"><svg><use href="#i-power"/></svg><span>终止课铃</span></button>
           <div class="foot-line"><span>数据仅保存在本机</span><svg><use href="#i-shield"/></svg></div>
-          <div class="foot-version" id="foot-version">v1.10.3</div>
+          <div class="foot-version" id="foot-version">v1.11.0</div>
         </div>
       </aside>
 
@@ -550,7 +550,7 @@
               </div>
 
               <div class="panel settings-panel about-panel">
-                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.10.3</span></div></div>
+                <div class="about-brand"><img src="assets/icon.png" alt="" /><div><strong>课铃 ClassBell</strong><span id="about-version">v1.11.0</span></div></div>
                 <p>面向大学生的轻量课程任务提醒工具。非学习通官方产品，仅读取你本人有权访问的课程数据。</p>
                 <div class="about-links">
                   <button class="link-btn" id="btn-open-data-2"><svg><use href="#i-folder"/></svg>数据目录</button>
@@ -578,6 +578,20 @@
               </div>
               <p class="field-note" id="ui-scale-scope">三处各调各的，互不影响。主界面也能用 <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> 调，<kbd>Ctrl</kbd> + <kbd>0</kbd> 回到标准。</p>
               <button class="link-btn" id="btn-reopen-scale-guide">重新查看字号引导</button>
+            </div>
+
+            <!-- 浮窗专属：显示几条 + 透明度。和字号放同一块，用户不用去别处找 -->
+            <div class="field-block">
+              <label class="field-label">桌面浮窗内容</label>
+              <div class="scale-matrix">
+                <span class="scale-matrix-label">显示条数</span>
+                <div class="segmented compact scale-row" id="float-count"></div>
+                <span class="scale-matrix-value" id="float-count-hint">1 条</span>
+                <span class="scale-matrix-label">透明度</span>
+                <input type="range" id="float-opacity" class="opacity-range" min="30" max="100" step="1" value="92" />
+                <span class="scale-matrix-value" id="float-opacity-hint">92%</span>
+              </div>
+              <p class="field-note">按「优先级 → 截止时间」排，紧急的最上面。透明度最低 30%，再低就看不清字了。</p>
             </div>
             <div class="danger-row">
               <div><strong>终止运行</strong><p>立即关闭课铃和后台服务，之后不会再提醒，直到重新打开。</p></div>

@@ -113,6 +113,10 @@ function defaultSettings() {
     // 桌面浮窗与提醒弹窗各自独立的字号档位（1.1 = 110%，和主界面默认一致）。
     // 分开存是因为这三处想要的字号经常不一样：浮窗要小、提醒弹窗要大。
     floatScale: 1.1,
+    // 浮窗同时显示几条（1~3）。默认 1 条，和之前只显示"下一项"的观感一致。
+    floatTaskCount: 1,
+    // 浮窗透明度 0.30~1.00，连续值。默认 0.92 与旧版常量 IdleOpacity 相同。
+    floatOpacity: 0.92,
     toastScale: 1.1,
     sound: true,
     quietHours: { enabled: false, start: '23:00', end: '07:00' },
@@ -845,7 +849,8 @@ class Store {
       'displayName', 'firstRun', 'reminderOffsets',
       'uiScale', 'scaleGuideDone', 'lastPage',
       'closeHintShown', 'trayHintShown', 'useModelEstimate',
-      'floatWindow', 'floatWindowPos', 'floatScale', 'toastScale'
+      'floatWindow', 'floatWindowPos', 'floatScale', 'toastScale',
+      'floatTaskCount', 'floatOpacity'
     ];
     const next = { ...this.state.settings };
     for (const key of allowed) {
@@ -890,6 +895,19 @@ class Store {
         const scaleOptions = [0.9, 1, 1.1, 1.25, 1.4, 1.6];
         const requested = Number(patch[key]);
         next[key] = scaleOptions.includes(requested) ? requested : (next[key] || 1.1);
+      } else if (key === 'floatTaskCount') {
+        // 只接受 1/2/3：界面上就三个按钮，其它值一律回退到"保持原样"
+        const count = Math.round(Number(patch.floatTaskCount));
+        next.floatTaskCount = [1, 2, 3].includes(count) ? count : (next.floatTaskCount || 1);
+      } else if (key === 'floatOpacity') {
+        // 连续值，限定 0.30~1.00；按 1% 步进存成两位小数，避免浮点尾巴
+        const raw = Number(patch.floatOpacity);
+        if (Number.isFinite(raw)) {
+          const clamped = Math.max(0.3, Math.min(1, raw));
+          next.floatOpacity = Math.round(clamped * 100) / 100;
+        } else {
+          next.floatOpacity = next.floatOpacity || 0.92;
+        }
       } else if (key === 'lastPage') {
         const allowedPages = ['dashboard', 'tasks', 'integration', 'notices', 'gear', 'mistakes', 'settings'];
         const value = cleanText(patch.lastPage, 20);

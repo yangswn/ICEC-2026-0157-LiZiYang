@@ -24,3 +24,4 @@ require('./wrong-questions.test.js');
 require('./media-proxy.test.js');
 require('./toast-layout.test.js');
 require('./scale-split.test.js');
+require('./float-options.test.js');

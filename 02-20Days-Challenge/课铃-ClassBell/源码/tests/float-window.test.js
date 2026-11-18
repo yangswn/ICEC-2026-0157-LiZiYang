@@ -61,10 +61,13 @@ test('float window is borderless, topmost and stays off the taskbar', () => {
   assert.ok(floatCs.includes('ShowInTaskbar = false'), '不能占任务栏');
 });
 
-test('float window is translucent and turns opaque on hover', () => {
-  assert.ok(/IdleOpacity\s*=\s*0\.92/.test(floatCs), '平时 92% 半透明');
+test('float window is translucent by default and opaque on hover', () => {
+  // 1.11.0 起透明度可配置，0.92 只是默认值
+  assert.ok(/DefaultOpacity\s*=\s*0\.92/.test(floatCs), '默认 92% 半透明');
   assert.ok(/Opacity\s*=\s*1\.0/.test(floatCs), '鼠标移上去要变不透明');
   assert.ok(floatCs.includes('OnMouseEnter') && floatCs.includes('OnMouseLeave'));
+  // 离开时回到用户设置的值，而不是写死 0.92
+  assert.ok(/Opacity\s*=\s*baseOpacity/.test(floatCs), '移开后回到设置的透明度');
 });
 
 test('size follows UI scale and DPI', () => {
@@ -120,7 +123,9 @@ test('context menu has the three required items', () => {
     assert.ok(floatCs.includes(label), `菜单要有「${label}」`);
   }
   // 子控件不继承窗体菜单，必须逐个挂
-  assert.ok(floatCs.includes('titleLabel.ContextMenuStrip'), 'Label 也要挂菜单');
+  // 1.11.0 起 Label 变成三行数组，改由 HookDrag 统一挂菜单；
+  // 关键是「子控件也要挂」这件事不能丢。
+  assert.ok(/control\.ContextMenuStrip\s*=\s*ContextMenuStrip/.test(floatCs), '每个 Label 都要挂菜单');
 });
 
 test('no pending task shows a message then fades out', () => {
@@ -131,23 +136,24 @@ test('no pending task shows a message then fades out', () => {
 
 /* ------------------------------------------------ C# 约束（宿主接线） */
 
-test('host picks the same "next task" as the renderer', () => {
-  const at = mainCs.indexOf('private static FloatWindow.TaskInfo ComputeNextTask');
-  assert.ok(at > 0, '要有 ComputeNextTask');
+test('host filters candidates the same way, but sorts by priority now', () => {
+  // 1.11.0：浮窗的排序改成「优先级降序 → 截止时间升序」，
+  // 与主界面列表的排序**故意不同**（主界面没动）。相同的是筛选条件。
+  const at = mainCs.indexOf('private static List<FloatWindow.TaskInfo> ComputeFloatTasks');
+  assert.ok(at > 0, '要有 ComputeFloatTasks');
   const block = mainCs.slice(at, at + 2600);
   assert.ok(block.includes('"pending"'), '只看待完成');
   assert.ok(block.includes('noDeadline'), '跳过长期任务');
-  assert.ok(block.includes('best ?? earliestOverdue'), '优先未过期，其次最早逾期');
 
-  // 渲染层 nextPendingTask() 用的也是这套规则
+  // 主界面列表排序保持原样
   const appJs = fs.readFileSync(path.join(repoRoot, 'src', 'renderer', 'app.js'), 'utf8');
-  assert.ok(appJs.includes('nextPendingTask'), '渲染层有同样的规则');
+  assert.ok(appJs.includes('taskListSorted'), '主界面排序函数还在');
 });
 
 test('float window refreshes on the existing 30 second poll', () => {
   const at = mainCs.indexOf('private async Task PollStatusAsync');
   assert.ok(at > 0);
-  const block = mainCs.slice(at, at + 3000);
+  const block = mainCs.slice(at, at + 4600);
   assert.ok(block.includes('SyncFloatWindow'), '30 秒轮询里要推一次下一项');
   assert.ok(/Interval = 30000/.test(mainCs), '轮询周期是 30 秒');
 });

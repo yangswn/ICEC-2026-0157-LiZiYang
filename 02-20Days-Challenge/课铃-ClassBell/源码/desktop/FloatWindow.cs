@@ -9,16 +9,22 @@ using System.Windows.Forms;
 namespace ClassBell
 {
     /// <summary>
-    /// 桌面浮窗：常驻桌面的一小块，只显示「下一项任务 + 倒计时」。
+    /// 桌面浮窗：常驻桌面的一小块，显示「接下来要做的几项任务 + 倒计时」。
     ///
     /// 为什么需要：用户反馈「存在感太低、平时都挂在后台」，主窗口关了就想不起来用。
-    /// 这一块的作用就是把下一项截止时间一直摆在眼前。
+    /// 这一块的作用就是把最近的截止时间一直摆在眼前。
     ///
     /// 三条硬性约束（踩过就知道后果）：
     ///  1. 不抢焦点 —— 用 WS_EX_NOACTIVATE + ShowWithoutActivation，任何情况下都不调 Activate()，
     ///     否则用户正在打字时浮窗一刷新，输入框就丢了焦点。
     ///  2. 全屏应用时让路 —— 看视频、打游戏时浮窗挡在画面上会被骂。检测到前台全屏就隐藏。
     ///  3. 位置必须能找回来 —— 记住的位置可能落在已拔掉的显示器上，要能回落到主屏。
+    ///
+    /// 1.11.0 起支持「同时显示 1~3 条」与「连续调节透明度」：
+    ///  - 条数上限 3：浮窗宽度只有 300（100% 下），再多就把桌面竖着占掉一大截；
+    ///    而且用户扫一眼能处理的信息也就三条，再多不如回主窗口看。
+    ///  - 三条的布局是固定的（不是动态增删控件）：三个 Label 行一直存在，
+    ///    只按条数决定显示几行、各放哪儿。这样不会因为频繁增删控件闪一下。
     /// </summary>
     internal sealed class FloatWindow : Form
     {
@@ -66,9 +72,21 @@ namespace ClassBell
 
         /* -------------------------------------------------------- 外观参数 */
 
-        private const double IdleOpacity = 0.92;
+        /// <summary>透明度默认值。与 1.9.0 的常量一致，老用户升级后观感不变。</summary>
+        internal const double DefaultOpacity = 0.92;
+
+        /// <summary>
+        /// 透明度下限 0.30。
+        /// 理由：浮窗是米白纸面 + 深墨文字，压到 30% 以下叠在浅色壁纸上时对比度已经不够，
+        /// 「看得见但看不清」比「看不见」更糟；而且太透之后用户也找不到可拖拽的边界。
+        /// </summary>
+        internal const double MinOpacity = 0.30;
+
         private const int BaseWidth = 300;
+        /// <summary>1 条任务时的基准高度，保持 1.10.3 的外观不变。</summary>
         private const int BaseHeight = 84;
+        /// <summary>每多显示一条任务，窗口增加的高度（单行 + 间距）。</summary>
+        private const int ExtraRowStride = 28;
         private const int EdgeMargin = 24;
 
         // 与主界面 CSS 变量同一套色：米色纸面 + 墨色文字 + 金色强调
@@ -82,14 +100,18 @@ namespace ClassBell
         /* ------------------------------------------------------------ 状态 */
 
         private readonly MainForm owner;
-        private readonly Label titleLabel;
-        private readonly Label countdownLabel;
+        // 三行固定存在：index 0 是"最要紧的一条"（两行排版），1/2 是单行
+        private readonly Label[] titleLabels = new Label[3];
+        private readonly Label[] countdownLabels = new Label[3];
         private readonly Label tagLabel;
         private readonly Timer tickTimer;
         private readonly Timer fullscreenTimer;
         private readonly Timer fadeTimer;
 
-        private TaskInfo current;
+        private readonly List<TaskInfo> current = new List<TaskInfo>();
+        private int taskCount = 1;
+        private double baseOpacity = DefaultOpacity;
+        private bool fading;
         private float uiScale = 1.1f;
         // 屏幕 DPI 比例（150% 缩放 = 1.5）。像素尺寸要乘它，字号不用 ——
         // Font 的点值由 GDI+ 按 DPI 自动放大，再乘一次就变成"大字塞小盒"。
@@ -108,14 +130,14 @@ namespace ClassBell
         private IntPtr focusBeforeMenu = IntPtr.Zero;
         private Point lastClickPoint;
 
-        /// <summary>当前要显示的任务（宿主从 /api/state 里挑出来的）。</summary>
+        /// <summary>当前要显示的任务（宿主从 /api/state 里挑好、排好序送来的）。</summary>
         internal sealed class TaskInfo
         {
             public string Title = "";
             public string Course = "";
             public DateTime? DueAt;
             public string Category = "";
-            public bool Overdue;
+            public string Priority = "normal";
         }
 
         internal FloatWindow(MainForm owner)
@@ -128,42 +150,18 @@ namespace ClassBell
             StartPosition = FormStartPosition.Manual;
             BackColor = PaperColor;
             DoubleBuffered = true;
-            // 92% 半透明：既看得出存在，又不至于糊住底下内容
-            Opacity = IdleOpacity;
+            Opacity = baseOpacity;
             Text = "课铃浮窗";
 
-            titleLabel = new Label
+            for (int i = 0; i < titleLabels.Length; i += 1)
             {
-                AutoSize = false,
-                BackColor = Color.Transparent,
-                ForeColor = InkColor,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold),
-                Text = "今天没有待办"
-            };
+                titleLabels[i] = NewLabel(ContentAlignment.MiddleLeft);
+                countdownLabels[i] = NewLabel(ContentAlignment.MiddleRight);
+                Controls.Add(titleLabels[i]);
+                Controls.Add(countdownLabels[i]);
+            }
 
-            countdownLabel = new Label
-            {
-                AutoSize = false,
-                BackColor = Color.Transparent,
-                ForeColor = MutedColor,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft YaHei UI", 9F),
-                Text = ""
-            };
-
-            tagLabel = new Label
-            {
-                AutoSize = false,
-                BackColor = Color.Transparent,
-                ForeColor = MutedColor,
-                TextAlign = ContentAlignment.MiddleRight,
-                Font = new Font("Microsoft YaHei UI", 8F),
-                Text = ""
-            };
-
-            Controls.Add(titleLabel);
-            Controls.Add(countdownLabel);
+            tagLabel = NewLabel(ContentAlignment.MiddleRight);
             Controls.Add(tagLabel);
 
             DetectDpiScale();
@@ -173,13 +171,10 @@ namespace ClassBell
 
             // 窗口本身也要绑：点在文字之间的空隙时事件落在窗体上，不绑就"双击没反应"。
             DoubleClick += (s, e) => OpenMain();
-            titleLabel.DoubleClick += (s, e) => OpenMain();
-            countdownLabel.DoubleClick += (s, e) => OpenMain();
-            tagLabel.DoubleClick += (s, e) => OpenMain();
 
             // 倒计时每秒走，状态每 30 秒向宿主要一次（宿主已经把 30 秒轮询接好了）
             tickTimer = new Timer { Interval = 1000 };
-            tickTimer.Tick += (s, e) => RenderCountdown();
+            tickTimer.Tick += (s, e) => RenderCountdowns();
             tickTimer.Start();
 
             fullscreenTimer = new Timer { Interval = 1500 };
@@ -188,6 +183,19 @@ namespace ClassBell
 
             fadeTimer = new Timer { Interval = 40 };
             fadeTimer.Tick += (s, e) => FadeTick();
+        }
+
+        private static Label NewLabel(ContentAlignment align)
+        {
+            return new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                ForeColor = InkColor,
+                TextAlign = align,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                Text = ""
+            };
         }
 
         /// <summary>
@@ -218,12 +226,9 @@ namespace ClassBell
             menu.Items.Add("设置", null, (s, e) => OpenMain("settings"));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("隐藏浮窗", null, (s, e) => owner.HideFloatWindow());
-            // 三个 Label 铺满整块，右键基本都落在它们身上。
+            // Label 铺满整块，右键基本都落在它们身上。
             // 子控件不继承窗体的 ContextMenuStrip，必须逐个挂，否则右键永远没反应。
             ContextMenuStrip = menu;
-            titleLabel.ContextMenuStrip = menu;
-            countdownLabel.ContextMenuStrip = menu;
-            tagLabel.ContextMenuStrip = menu;
 
             // 弹菜单前必须让窗口能激活：NOACTIVATE 的窗口弹 ToolStripDropDown 时拿不到焦点，
             // 菜单收不到"点别处"的消息就永远不关，一直盖在浮窗上把后续点击全吃掉。
@@ -267,7 +272,7 @@ namespace ClassBell
         /* ------------------------------------------------------------ 拖动 */
 
         /// <summary>
-        /// 整块都能拖：三个 Label 也挂同一套事件，
+        /// 整块都能拖：所有 Label 也挂同一套事件，
         /// 否则鼠标落在文字上就拖不动（用户会以为浮窗坏了）。
         /// </summary>
         private void HookDrag()
@@ -277,14 +282,19 @@ namespace ClassBell
                 control.MouseDown += OnDragStart;
                 control.MouseMove += OnDragMove;
                 control.MouseUp += OnDragEnd;
+                control.DoubleClick += (s, e) => OpenMain();
+                control.ContextMenuStrip = ContextMenuStrip;
             }
         }
 
         private IEnumerable<Control> AllDraggables()
         {
             yield return this;
-            yield return titleLabel;
-            yield return countdownLabel;
+            for (int i = 0; i < titleLabels.Length; i += 1)
+            {
+                yield return titleLabels[i];
+                yield return countdownLabels[i];
+            }
             yield return tagLabel;
         }
 
@@ -375,9 +385,35 @@ namespace ClassBell
 
         /* -------------------------------------------------------- 位置与缩放 */
 
+        /// <summary>设置同时显示几条（1~3）。改完立刻重排，不用等下次刷新。</summary>
+        internal void SetTaskCount(int count)
+        {
+            int next = Math.Max(1, Math.Min(titleLabels.Length, count));
+            if (next == taskCount) return;
+            taskCount = next;
+            ApplyScale(uiScale);
+        }
+
         /// <summary>
-        /// 按主界面字号档位缩放。BaseWidth/Height 是 100% 的尺寸，
-        /// 再按 uiScale 线性放大，超出屏幕时靠 ClampToVisible 兜住。
+        /// 设置浮窗透明度（0.30~1.00）。
+        /// 淡出过程中不接管，避免和淡出的每一帧打架。
+        /// </summary>
+        internal void SetBaseOpacity(double opacity)
+        {
+            double next = Math.Max(MinOpacity, Math.Min(1.0, opacity));
+            baseOpacity = next;
+            if (!fading && Visible) Opacity = next;
+        }
+
+        internal double BaseOpacity
+        {
+            get { return baseOpacity; }
+        }
+
+        /// <summary>
+        /// 按主界面字号档位 + 条数重排。
+        /// 宽高都以 100% 下的基准值乘 uiScale × dpiScale；
+        /// 高度随条数线性增加（每条多一行），所以 1 条时的外观与旧版完全一致。
         /// </summary>
         internal void ApplyScale(float scale)
         {
@@ -386,22 +422,71 @@ namespace ClassBell
             uiScale = scale;
 
             float px = scale * dpiScale;
+            int count = Math.Max(1, Math.Min(titleLabels.Length, taskCount));
+
             int width = (int)Math.Round(BaseWidth * px);
-            int height = (int)Math.Round(BaseHeight * px);
+            int height = (int)Math.Round((BaseHeight + (count - 1) * ExtraRowStride) * px);
             Size = new Size(width, height);
 
             int pad = (int)Math.Round(16 * px);
+            int titleH = (int)Math.Round(26 * px);
+            int lineH = (int)Math.Round(22 * px);
+            int gap = (int)Math.Round(6 * px);
+            int tagW = (int)Math.Round(74 * px);
+            // 单行条目右侧留出倒计时的位置；主条目第二行也要让出 tag 的宽度
+            int rightW = (int)Math.Round(96 * px);
 
-            titleLabel.Bounds = new Rectangle(pad, (int)Math.Round(14 * px), width - pad * 2, (int)Math.Round(26 * px));
-            countdownLabel.Bounds = new Rectangle(pad, (int)Math.Round(42 * px), width - pad * 2 - (int)Math.Round(60 * px), (int)Math.Round(22 * px));
-            tagLabel.Bounds = new Rectangle(width - pad - (int)Math.Round(74 * px), (int)Math.Round(42 * px), (int)Math.Round(74 * px), (int)Math.Round(22 * px));
+            // 第一条：标题一行 + （倒计时 | 优先级标签）一行
+            titleLabels[0].Bounds = new Rectangle(pad, (int)Math.Round(14 * px), width - pad * 2, titleH);
+            countdownLabels[0].Bounds = new Rectangle(pad, (int)Math.Round(42 * px), width - pad * 2 - tagW - gap, lineH);
+            tagLabel.Bounds = new Rectangle(width - pad - tagW, (int)Math.Round(42 * px), tagW, lineH);
 
-            titleLabel.Font = new Font("Microsoft YaHei UI", 10.5F * scale, FontStyle.Bold);
-            countdownLabel.Font = new Font("Microsoft YaHei UI", 9F * scale, FontStyle.Regular);
-            tagLabel.Font = new Font("Microsoft YaHei UI", 8F * scale, FontStyle.Regular);
+            // 第二、三条：单行「标题 …… 倒计时」
+            int firstExtraY = (int)Math.Round(70 * px);
+            int stride = (int)Math.Round(ExtraRowStride * px);
+            for (int i = 1; i < titleLabels.Length; i += 1)
+            {
+                int y = firstExtraY + (i - 1) * stride;
+                titleLabels[i].Bounds = new Rectangle(pad, y, width - pad * 2 - rightW - gap, lineH);
+                countdownLabels[i].Bounds = new Rectangle(width - pad - rightW, y, rightW, lineH);
+            }
 
+            // 字号只乘 uiScale：点值由 GDI+ 按 DPI 放大，再乘 dpiScale 就成了"大字塞小盒"
+            RebuildFont(titleLabels[0], 10.5F * scale, FontStyle.Bold);
+            RebuildFont(tagLabel, 8F * scale, FontStyle.Regular);
+            RebuildFont(countdownLabels[0], 9F * scale, FontStyle.Regular);
+            for (int i = 1; i < titleLabels.Length; i += 1)
+            {
+                RebuildFont(titleLabels[i], 9F * scale, FontStyle.Regular);
+                RebuildFont(countdownLabels[i], 8.5F * scale, FontStyle.Regular);
+            }
+
+            ApplyVisibility();
+            // 字号和宽度都变了：重新按单行截断一次，否则会沿用旧档位的截断结果
+            RefreshTexts();
             ApplyRoundRegion();
             if (!dragging) Location = ClampToVisible(Location);
+        }
+
+        /// <summary>旧字体要释放，否则每换一次档位就漏一批 GDI 句柄。</summary>
+        private static void RebuildFont(Label label, float size, FontStyle style)
+        {
+            var old = label.Font;
+            label.Font = new Font("Microsoft YaHei UI", size, style);
+            if (old != null) old.Dispose();
+        }
+
+        /// <summary>按当前条数和任务数决定哪些行可见。</summary>
+        private void ApplyVisibility()
+        {
+            int count = Math.Max(1, Math.Min(titleLabels.Length, taskCount));
+            for (int i = 0; i < titleLabels.Length; i += 1)
+            {
+                bool used = i < count;
+                titleLabels[i].Visible = used;
+                countdownLabels[i].Visible = used;
+            }
+            tagLabel.Visible = count >= 1;
         }
 
         /// <summary>
@@ -549,69 +634,181 @@ namespace ClassBell
 
         /// <summary>
         /// 显示但不抢焦点。Show() 配合 ShowWithoutActivation 已经够用，
-        /// 这里额外确保 Opacity 回到正常值（可能刚从淡出里出来）。
+        /// 这里额外把透明度复位到用户设置的值（可能刚从淡出里出来）。
         /// </summary>
         internal void ShowWindowWithoutStealingFocus()
         {
             if (IsDisposed) return;
             suppressHide = false;
+            fading = false;
             fadeTimer.Stop();
-            Opacity = IdleOpacity;
+            Opacity = baseOpacity;
             if (!Visible) Show();
         }
 
         /* ------------------------------------------------------------ 内容 */
 
         /// <summary>
-        /// 宿主送来新的下一项任务。null 表示没有待办：
-        /// 先显示「今天没有待办」，3 秒后再淡出。
+        /// 宿主送来排好序的若干条任务（最多 3 条）。
+        /// 空列表表示没有待办：先显示「今天没有待办」，3 秒后再淡出。
         /// </summary>
-        internal void SetTask(TaskInfo task)
+        internal void SetTasks(IList<TaskInfo> tasks)
         {
-            current = task;
-            if (task == null)
+            current.Clear();
+            if (tasks != null)
             {
-                titleLabel.Text = "今天没有待办";
-                countdownLabel.Text = "休息一下，或者安排点别的";
-                countdownLabel.ForeColor = MutedColor;
+                foreach (var task in tasks)
+                {
+                    if (task != null) current.Add(task);
+                }
+            }
+
+            // 条数由设置决定，任务不足时多余的行留空
+            int count = Math.Max(1, Math.Min(titleLabels.Length, taskCount));
+            ApplyVisibility();
+
+            if (current.Count == 0)
+            {
+                titleLabels[0].Text = "今天没有待办";
+                titleLabels[0].ForeColor = InkColor;
+                countdownLabels[0].Text = "休息一下，或者安排点别的";
+                countdownLabels[0].ForeColor = MutedColor;
                 tagLabel.Text = "";
+                for (int i = 1; i < titleLabels.Length; i += 1)
+                {
+                    titleLabels[i].Text = "";
+                    countdownLabels[i].Text = "";
+                }
                 ScheduledFadeOut();
                 return;
             }
 
-            titleLabel.Text = Shorten(task.Title, 18);
-            titleLabel.ForeColor = task.Overdue ? LateColor : InkColor;
-            tagLabel.Text = task.Category;
-            countdownLabel.ForeColor = task.Overdue ? LateColor : MutedColor;
-            RenderCountdown();
-        }
-
-        private void RenderCountdown()
-        {
-            if (current == null) return;
-            if (!current.DueAt.HasValue)
+            for (int i = 0; i < titleLabels.Length; i += 1)
             {
-                countdownLabel.Text = "无截止时间";
-                return;
+                bool used = i < count && i < current.Count;
+                if (!used)
+                {
+                    titleLabels[i].Text = "";
+                    countdownLabels[i].Text = "";
+                    continue;
+                }
+                var task = current[i];
+                // 颜色 = 优先级：紧急红 / 重要金 / 普通墨色。
+                // 过期不用颜色区分（倒计时的"已超时"已经说清楚了），这样两个信号不打架。
+                titleLabels[i].ForeColor = PriorityColor(task.Priority);
+                countdownLabels[i].ForeColor = MutedColor;
             }
-            var diff = current.DueAt.Value - DateTime.Now;
-            bool late = diff.TotalSeconds < 0;
-            var abs = diff.Duration();
-            string core;
-            if (abs.TotalDays >= 1) core = string.Format("{0} 天 {1:00} 小时", (int)abs.TotalDays, abs.Hours);
-            else if (abs.TotalHours >= 1) core = string.Format("{0} 小时 {1:00} 分", (int)abs.TotalHours, abs.Minutes);
-            else if (abs.TotalMinutes >= 1) core = string.Format("{0} 分 {1:00} 秒", (int)abs.TotalMinutes, abs.Seconds);
-            else core = string.Format("{0} 秒", abs.Seconds);
 
-            countdownLabel.Text = (late ? "已超时 " : "还有 ") + core;
-            countdownLabel.ForeColor = late ? LateColor : MutedColor;
+            RefreshTexts();
+
+            var first = current[0];
+            tagLabel.Text = PriorityTag(first);
+            tagLabel.ForeColor = PriorityColor(first.Priority);
+            RenderCountdowns();
         }
 
-        private static string Shorten(string text, int max)
+        /// <summary>
+        /// 把 current 里的任务铺到各行。标题按「单行」截断 ——
+        /// 多条时后面几行只有一行的高度，让它折行必然被裁掉。
+        /// </summary>
+        private void RefreshTexts()
+        {
+            int count = Math.Max(1, Math.Min(titleLabels.Length, taskCount));
+            for (int i = 0; i < titleLabels.Length; i += 1)
+            {
+                bool used = i < count && i < current.Count;
+                if (!used)
+                {
+                    titleLabels[i].Text = "";
+                    countdownLabels[i].Text = "";
+                    continue;
+                }
+                titleLabels[i].Text = FitOneLine(current[i].Title, titleLabels[i].Font, titleLabels[i].Bounds.Width);
+            }
+        }
+
+        /// <summary>
+        /// 把文字压成单行：放不下就截断并补省略号。
+        /// 不用 Label.AutoEllipsis —— 那个只管"超出宽度"，折行还是会发生；
+        /// 这里自己量，量完再截，行高就是稳的。
+        /// </summary>
+        private static string FitOneLine(string text, Font font, int width)
         {
             if (string.IsNullOrEmpty(text)) return "";
-            return text.Length <= max ? text : text.Substring(0, max) + "…";
+            if (width <= 0) return text;
+            var flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            var unbounded = new Size(int.MaxValue, int.MaxValue);
+            if (TextRenderer.MeasureText(text, font, unbounded, flags).Width <= width) return text;
+
+            // 二分找"最长的、加省略号后仍放得下"的前缀，比逐字减快得多
+            int low = 0;
+            int high = text.Length;
+            while (low < high)
+            {
+                int mid = (low + high + 1) / 2;
+                string candidate = text.Substring(0, mid) + "…";
+                if (TextRenderer.MeasureText(candidate, font, unbounded, flags).Width <= width) low = mid;
+                else high = mid - 1;
+            }
+            return low <= 0 ? "…" : text.Substring(0, low) + "…";
         }
+
+        /// <summary>宿主只送一条时的兼容入口。</summary>
+        internal void SetTask(TaskInfo task)
+        {
+            SetTasks(task == null ? null : new List<TaskInfo> { task });
+        }
+
+        /// <summary>优先级 → 文字颜色。普通用墨色而不是灰色，保证低优先级也看得清。</summary>
+        private static Color PriorityColor(string priority)
+        {
+            switch (priority)
+            {
+                case "urgent": return LateColor;
+                case "important": return GoldColor;
+                default: return InkColor;
+            }
+        }
+
+        /// <summary>
+        /// 主条目右侧那个小标签：有优先级就写优先级（最醒目），
+        /// 普通优先级则退回去显示任务类型，避免占着地方却不提供信息。
+        /// </summary>
+        private static string PriorityTag(TaskInfo task)
+        {
+            if (task.Priority == "urgent") return "紧急";
+            if (task.Priority == "important") return "重要";
+            return string.IsNullOrEmpty(task.Category) ? "" : task.Category;
+        }
+
+        private void RenderCountdowns()
+        {
+            for (int i = 0; i < current.Count && i < countdownLabels.Length; i += 1)
+            {
+                var task = current[i];
+                if (!task.DueAt.HasValue)
+                {
+                    countdownLabels[i].Text = "无截止时间";
+                    countdownLabels[i].ForeColor = MutedColor;
+                    continue;
+                }
+                var diff = task.DueAt.Value - DateTime.Now;
+                bool late = diff.TotalSeconds < 0;
+                // 倒计时列很窄，必须压成单行，否则折行会被行高裁掉
+                string core = (late ? "已超时 " : "还有 ") + FormatSpan(diff.Duration());
+                countdownLabels[i].Text = FitOneLine(core, countdownLabels[i].Font, countdownLabels[i].Bounds.Width);
+                countdownLabels[i].ForeColor = late ? LateColor : MutedColor;
+            }
+        }
+
+        private static string FormatSpan(TimeSpan abs)
+        {
+            if (abs.TotalDays >= 1) return string.Format("{0} 天 {1:00} 小时", (int)abs.TotalDays, abs.Hours);
+            if (abs.TotalHours >= 1) return string.Format("{0} 小时 {1:00} 分", (int)abs.TotalHours, abs.Minutes);
+            if (abs.TotalMinutes >= 1) return string.Format("{0} 分 {1:00} 秒", (int)abs.TotalMinutes, abs.Seconds);
+            return string.Format("{0} 秒", abs.Seconds);
+        }
+
 
         /* ------------------------------------------------------------ 淡出 */
 
@@ -623,28 +820,36 @@ namespace ClassBell
         {
             if (!Visible) return;
             fadeStep = -1;
+            fading = false;
             fadeTimer.Stop();
             var delay = new Timer { Interval = 3000 };
             delay.Tick += (s, e) =>
             {
                 delay.Stop();
                 delay.Dispose();
-                if (current != null) return;   // 这 3 秒里又来了新任务，就别淡出了
+                if (current.Count > 0) return;   // 这 3 秒里又来了新任务，就别淡出了
                 fadeStep = 0;
+                fading = true;
                 fadeTimer.Start();
             };
             delay.Start();
         }
 
+        /// <summary>
+        /// 逐帧降透明度。
+        /// 基线是「用户设置的透明度」而不是写死的 0.92 —— 否则把透明度调到 40% 的用户
+        /// 会在淡出时突然跳回 92% 再往下掉，看着像闪了一下。
+        /// </summary>
         private void FadeTick()
         {
-            if (fadeStep < 0) { fadeTimer.Stop(); return; }
+            if (fadeStep < 0) { fadeTimer.Stop(); fading = false; return; }
             fadeStep += 1;
-            double next = IdleOpacity - fadeStep * 0.09;
+            double next = baseOpacity - fadeStep * 0.09;
             if (next <= 0.02)
             {
                 fadeTimer.Stop();
-                Opacity = IdleOpacity;   // 复位，下次显示还是 92%
+                fading = false;
+                Opacity = baseOpacity;   // 复位，下次显示还是用户设的那个值
                 if (!hiddenForFullscreen) Hide();
                 return;
             }
@@ -653,13 +858,12 @@ namespace ClassBell
 
         /* ------------------------------------------------------------ 交互 */
 
-
-
         protected override void OnMouseEnter(EventArgs e2)
         {
             base.OnMouseEnter(e2);
             if (!Visible) return;
             fadeTimer.Stop();
+            fading = false;
             Opacity = 1.0;
         }
 
@@ -667,7 +871,7 @@ namespace ClassBell
         {
             base.OnMouseLeave(e);
             if (!Visible || dragging) return;
-            Opacity = IdleOpacity;
+            Opacity = baseOpacity;
         }
 
         /// <summary>
@@ -692,6 +896,12 @@ namespace ClassBell
                 if (tickTimer != null) { tickTimer.Stop(); tickTimer.Dispose(); }
                 if (fullscreenTimer != null) { fullscreenTimer.Stop(); fullscreenTimer.Dispose(); }
                 if (fadeTimer != null) { fadeTimer.Stop(); fadeTimer.Dispose(); }
+                for (int i = 0; i < titleLabels.Length; i += 1)
+                {
+                    if (titleLabels[i] != null && titleLabels[i].Font != null) titleLabels[i].Font.Dispose();
+                    if (countdownLabels[i] != null && countdownLabels[i].Font != null) countdownLabels[i].Font.Dispose();
+                }
+                if (tagLabel != null && tagLabel.Font != null) tagLabel.Font.Dispose();
             }
             base.Dispose(disposing);
         }

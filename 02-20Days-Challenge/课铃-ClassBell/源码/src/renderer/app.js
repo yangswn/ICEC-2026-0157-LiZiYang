@@ -1775,6 +1775,54 @@ function applyUiScale(scale) {
   // 另外两处只刷新勾选状态（它们由宿主生效，这里只负责显示对）
   markScale('#float-scale', '#float-scale-hint', currentFloatScale());
   markScale('#toast-scale', '#toast-scale-hint', currentToastScale());
+  renderFloatOptions();
+}
+
+/**
+ * 浮窗的「显示条数 / 透明度」回显。
+ * 条数用三个按钮（离散值，一眼看清选了哪个）；透明度用 range 滑杆（无级）。
+ */
+function renderFloatOptions() {
+  const box = $('#float-count');
+  if (box && !box.dataset.built) {
+    box.innerHTML = [1, 2, 3]
+      .map((n) => `<button class="seg" data-count="${n}">${n} 条</button>`)
+      .join('');
+    box.dataset.built = '1';
+  }
+  const count = currentFloatTaskCount();
+  $$('#float-count .seg').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.count) === count));
+  const countHint = $('#float-count-hint');
+  if (countHint) countHint.textContent = `${count} 条`;
+
+  const opacity = currentFloatOpacity();
+  const slider = $('#float-opacity');
+  if (slider) slider.value = String(Math.round(opacity * 100));
+  const opacityHint = $('#float-opacity-hint');
+  if (opacityHint) opacityHint.textContent = `${Math.round(opacity * 100)}%`;
+}
+
+/** 浮窗显示条数：只接受 1/2/3，其它值按 1 条处理。 */
+function currentFloatTaskCount() {
+  const raw = App.state && App.state.settings ? Number(App.state.settings.floatTaskCount) : NaN;
+  return [1, 2, 3].includes(raw) ? raw : 1;
+}
+
+/** 浮窗透明度：0.30~1.00，取不到时用 0.92（与旧版常亮值一致）。 */
+function currentFloatOpacity() {
+  const raw = App.state && App.state.settings ? Number(App.state.settings.floatOpacity) : NaN;
+  if (!Number.isFinite(raw)) return 0.92;
+  return Math.max(0.3, Math.min(1, raw));
+}
+
+/**
+ * 保存浮窗条数 / 透明度。
+ * 两个值一起下发：宿主那边是同一个命令，分开发会多一次重排。
+ */
+function saveFloatOptions(patch) {
+  if (App.state && App.state.settings) Object.assign(App.state.settings, patch);
+  renderFloatOptions();
+  api.updateSettings(patch).catch(() => { /* 离线时忽略 */ });
 }
 
 /** 首次使用引导：把“界面大小”摆在第一屏，避免用户以为页面糊或字太小。 */
@@ -2274,6 +2322,21 @@ function bindEvents() {
   $('#float-scale').addEventListener('click', (event) => {
     const btn = event.target.closest('.seg');
     if (btn) setSurfaceScale('float', btn.dataset.scale);
+  });
+  $('#float-count').addEventListener('click', (event) => {
+    const btn = event.target.closest('.seg');
+    if (!btn) return;
+    saveFloatOptions({ floatTaskCount: Number(btn.dataset.count) });
+  });
+  // 滑杆用 input 事件：拖的过程中数字跟着走，松手（change）时再落一次盘
+  $('#float-opacity').addEventListener('input', (event) => {
+    const percent = Number(event.target.value);
+    const hint = $('#float-opacity-hint');
+    if (hint) hint.textContent = `${percent}%`;
+  });
+  $('#float-opacity').addEventListener('change', (event) => {
+    const percent = Number(event.target.value);
+    saveFloatOptions({ floatOpacity: Math.round(percent) / 100 });
   });
   $('#toast-scale').addEventListener('click', (event) => {
     const btn = event.target.closest('.seg');

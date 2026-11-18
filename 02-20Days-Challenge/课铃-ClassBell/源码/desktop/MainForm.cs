@@ -60,6 +60,12 @@ namespace ClassBell
         // 设置页改完会立刻通过 applySurfaceScale 推过来，这里只是缓存。
         private float floatScaleValue = 1.1f;
         private float toastScaleValue = 1.1f;
+        // 浮窗显示条数（1~3）与透明度（0.30~1.00）。
+        // 默认与 1.10.3 一致：1 条 + 92%，升级后观感不变。
+        private int floatTaskCountValue = 1;
+        private double floatOpacityValue = FloatWindow.DefaultOpacity;
+        // 最近一次 /api/state 的 state 节点：设置改完要立刻重排时用它
+        private Dictionary<string, object> latestStateNode;
         // 轻提示每个会话只弹一次
         private bool trayToastShown;
         private System.Windows.Forms.Timer trayKeepAliveTimer;
@@ -650,6 +656,7 @@ namespace ClassBell
                     tray.Text = "课铃 ClassBell · " + pending + " 项待完成";
                 }
                 latestSettings = settings;
+                latestStateNode = stateNode;
                 if (settings != null && settingsLoaded)
                 {
                     closeToTray = HostApi.Bool(settings, "closeToTray", true);
@@ -676,6 +683,12 @@ namespace ClassBell
                     if (polledFloatScale >= 0.8f && polledFloatScale <= 1.8f) floatScaleValue = polledFloatScale;
                     float polledToastScale = (float)Convert.ToDouble(settings.ContainsKey("toastScale") ? settings["toastScale"] : 1.1);
                     if (polledToastScale >= 0.8f && polledToastScale <= 1.8f) toastScaleValue = polledToastScale;
+
+                    // 条数与透明度同理：直接改配置文件也能被这里兜住
+                    int polledCount = Convert.ToInt32(settings.ContainsKey("floatTaskCount") ? settings["floatTaskCount"] : 1);
+                    if (polledCount >= 1 && polledCount <= 3) floatTaskCountValue = polledCount;
+                    double polledOpacity = Convert.ToDouble(settings.ContainsKey("floatOpacity") ? settings["floatOpacity"] : 0.92);
+                    if (polledOpacity >= FloatWindow.MinOpacity && polledOpacity <= 1.0) floatOpacityValue = polledOpacity;
                     if (!string.IsNullOrWhiteSpace(polledPos)) floatWindowPos = polledPos;
                 }
 
@@ -702,34 +715,45 @@ namespace ClassBell
                     return;
                 }
 
+                // 条数/透明度先下发，再按条数重排，否则会先按旧的 1 条算一次高度
+                floatWindow.SetTaskCount(floatTaskCountValue);
+                floatWindow.SetBaseOpacity(floatOpacityValue);
                 floatWindow.ApplyScale(CurrentFloatScale());
-                var next = ComputeNextTask(stateNode);
-                floatWindow.SetTask(next);
+                var list = ComputeFloatTasks(stateNode, floatTaskCountValue);
+                floatWindow.SetTasks(list);
 
                 // 有任务就确保可见（不抢焦点）；全屏时 FloatWindow 自己会让路
-                if (next != null) floatWindow.ShowWindowWithoutStealingFocus();
+                if (list.Count > 0) floatWindow.ShowWindowWithoutStealingFocus();
             }
             catch (Exception ex) { SafeLog("float window sync failed: " + ex.Message); }
         }
 
         /// <summary>
-        /// 从 state.tasks 里挑「下一项」：待完成、有截止时间、按时间升序，
-        /// 优先还没过期的第一条；都过期了就取最早那条。
-        /// 渲染层 nextPendingTask() 用的是同一套规则，两边必须一致。
+        /// 从 state.tasks 里挑出要放进浮窗的若干条，并排好序。
+        ///
+        /// 排序规则（定死的两个关键字，别再改）：
+        ///   第一关键字：优先级降序 —— urgent(紧急) > important(重要) > normal(普通)；
+        ///   第二关键字：截止时间升序 —— 早的排前面。
+        ///
+        /// 三条都是普通优先级时，第一关键字全部相等，结果等价于「纯按截止时间升序」，
+        /// 这是验收里明确要求的行为。
+        ///
+        /// 已过期任务不做特殊提权、也不做特殊标记：它们因为截止时间早，
+        /// 通常自然排在前面；「是否超时」交给倒计时文字去表达。
+        ///
+        /// 只影响浮窗；主界面任务列表的排序（app.js 的 taskListSorted）保持原样。
         /// </summary>
-        private static FloatWindow.TaskInfo ComputeNextTask(Dictionary<string, object> stateNode)
+        private static List<FloatWindow.TaskInfo> ComputeFloatTasks(Dictionary<string, object> stateNode, int count)
         {
+            var result = new List<FloatWindow.TaskInfo>();
             try
             {
-                if (stateNode == null || !stateNode.ContainsKey("tasks")) return null;
+                if (stateNode == null || !stateNode.ContainsKey("tasks")) return result;
                 var tasks = stateNode["tasks"] as IList;
-                if (tasks == null) return null;
+                if (tasks == null) return result;
 
-                FloatWindow.TaskInfo best = null;
-                DateTime bestDue = DateTime.MaxValue;
-                FloatWindow.TaskInfo earliestOverdue = null;
-                DateTime earliestDue = DateTime.MaxValue;
                 var now = DateTime.Now;
+                var picked = new List<KeyValuePair<FloatWindow.TaskInfo, DateTime>>();
 
                 foreach (var entry in tasks)
                 {
@@ -749,18 +773,42 @@ namespace ClassBell
                         Course = HostApi.Str(task, "course"),
                         DueAt = due,
                         Category = CategoryLabel(HostApi.Str(task, "category")),
-                        Overdue = due < now
+                        Priority = HostApi.Str(task, "priority")
                     };
-
-                    if (due >= now && due < bestDue) { bestDue = due; best = info; }
-                    if (due < now && due < earliestDue) { earliestDue = due; earliestOverdue = info; }
+                    picked.Add(new KeyValuePair<FloatWindow.TaskInfo, DateTime>(info, due));
                 }
 
-                return best ?? earliestOverdue;
+                // 一次比较里比两个关键字。不能分两次排：List.Sort 不是稳定排序，
+                // 第二次排完同优先级内部的时间顺序就没了，而"全普通时按时间"是硬要求。
+                picked.Sort((a, b) =>
+                {
+                    int byPriority = PriorityRank(b.Key.Priority).CompareTo(PriorityRank(a.Key.Priority));
+                    return byPriority != 0 ? byPriority : a.Value.CompareTo(b.Value);
+                });
+
+                int take = Math.Max(1, Math.Min(3, count));
+                for (int i = 0; i < picked.Count && i < take; i += 1)
+                {
+                    result.Add(picked[i].Key);
+                }
             }
-            catch { return null; }
+            catch { }
+            return result;
         }
 
+        /// <summary>
+        /// 优先级 → 排序权重。急 > 重要 > 普通，未知值按普通处理
+        /// （老数据里可能没有 priority 字段，不能因此把它排到最前面或最后面）。
+        /// </summary>
+        private static int PriorityRank(string priority)
+        {
+            switch (priority)
+            {
+                case "urgent": return 2;
+                case "important": return 1;
+                default: return 0;
+            }
+        }
         private static string CategoryLabel(string category)
         {
             switch (category)
@@ -902,6 +950,35 @@ namespace ClassBell
                     // 界面大小：立刻同步给浮窗，之后弹出的提醒弹窗也用它
                     // 字号：前端改完立刻推过来，不必等 30 秒轮询。
                     // 第一个参数是作用对象（float / toast），第二个是档位。
+                    // 浮窗条数 / 透明度：设置页拖完立刻生效，不用等下一轮轮询
+                    case "applyFloatOptions":
+                        // 前端没提交的那一项会传 null —— 表示「保持不变」，
+                        // 不能当成 0 去夹 clamp，否则只调透明度会把条数重置成 1。
+                        int wantCount = floatTaskCountValue;
+                        double wantOpacity = floatOpacityValue;
+                        if (args != null && args.Length > 0 && args[0] != null && !(args[0] is string && (string)args[0] == ""))
+                        {
+                            wantCount = Convert.ToInt32(args[0]);
+                            if (wantCount < 1) wantCount = 1;
+                            if (wantCount > 3) wantCount = 3;
+                        }
+                        if (args != null && args.Length > 1 && args[1] != null && !(args[1] is string && (string)args[1] == ""))
+                        {
+                            wantOpacity = Convert.ToDouble(args[1]);
+                            if (wantOpacity < FloatWindow.MinOpacity) wantOpacity = FloatWindow.MinOpacity;
+                            if (wantOpacity > 1.0) wantOpacity = 1.0;
+                        }
+                        floatTaskCountValue = wantCount;
+                        floatOpacityValue = wantOpacity;
+                        if (floatWindow != null)
+                        {
+                            floatWindow.SetTaskCount(wantCount);
+                            floatWindow.SetBaseOpacity(wantOpacity);
+                        }
+                        // 条数变了要把高度重新算一遍，并把任务重新铺到新行数上
+                        SyncFloatWindow(latestStateNode);
+                        Respond(id, true, null);
+                        break;
                     case "applySurfaceScale":
                         string surface = args != null && args.Length > 0 ? Convert.ToString(args[0]) : "";
                         float scaleValue = (float)Convert.ToDouble(args != null && args.Length > 1 ? args[1] : 1.1);
@@ -1094,6 +1171,9 @@ namespace ClassBell
             {
                 if (floatWindow != null) return;
                 floatWindow = new FloatWindow(this);
+                // 先给条数和透明度，再按缩放算尺寸 —— 顺序反过来会先按 1 条算一次高度
+                floatWindow.SetTaskCount(floatTaskCountValue);
+                floatWindow.SetBaseOpacity(floatOpacityValue);
                 floatWindow.ApplyScale(CurrentFloatScale());
                 floatWindow.StartPosition = FormStartPosition.Manual;
                 // 先缩放再算位置：位置依赖真实尺寸，用 300×84 会算到屏幕外

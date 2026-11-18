@@ -1050,3 +1050,10 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid #d8d2c4; border
 /* 一行放六档，窄的时候自动换成两行，不会把数值挤出去 */
 .scale-matrix .scale-row { gap: 4px; }
 .scale-matrix .scale-row .seg { min-width: 44px; padding: 5px 8px; font-size: 11px; }
+
+/* 浮窗透明度滑杆：无级调节，和字号那几行同一套网格对齐 */
+.opacity-range {
+  width: 100%;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
