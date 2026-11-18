@@ -160,7 +160,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\sync-to-icec.ps1
 
 ```powershell
 cd campus-pulse
-npm test                 # 257 项单元测试
+npm test                 # 268 项单元测试
 powershell -File scripts\build-desktop.ps1
 node scripts\package-native.js
 powershell -File scripts\build-setup.ps1
@@ -179,7 +179,7 @@ WebView2 SDK 已放在 `desktop/lib/`；Node 运行时从本机 `node.exe` 复�
 npm test
 ```
 
-当前结果：**257 项单元测试全部通过**；安装器静默安装/卸载、WebView2 主窗口、学习通登录页、任务新增/完成、提醒弹窗、桌面浮窗、字号调节、错题本抓取与公式图显示、日志页面均已实际运行验证。详见 [测试记录](docs/测试记录.md)。
+当前结果：**268 项单元测试全部通过**；安装器静默安装/卸载、WebView2 主窗口、学习通登录页、任务新增/完成、提醒弹窗、桌面浮窗、字号调节、错题本抓取与公式图显示、日志页面均已实际运行验证。详见 [测试记录](docs/测试记录.md)。
 
 ## 过程数据与 7 天日志
 
