@@ -117,11 +117,15 @@ namespace ClassBell
         private readonly Timer tickTimer;
         private readonly Timer fullscreenTimer;
         private readonly Timer fadeTimer;
+        // 悬停判定用的定时器：只看"光标在不在浮窗可见区域里"，不依赖子控件的鼠标事件
+        private readonly Timer hoverTimer;
 
         private readonly List<TaskInfo> current = new List<TaskInfo>();
         private int taskCount = 1;
         private double baseOpacity = DefaultOpacity;
         private bool fading;
+        // 当前是否处于悬停高亮。只在翻转的那一刻改 Opacity，避免每帧写一次导致闪烁
+        private bool hovering;
         private float uiScale = 1.1f;
         // 屏幕 DPI 比例（150% 缩放 = 1.5）。像素尺寸要乘它，字号不用 ——
         // Font 的点值由 GDI+ 按 DPI 自动放大，再乘一次就变成"大字塞小盒"。
@@ -205,6 +209,12 @@ namespace ClassBell
 
             fadeTimer = new Timer { Interval = 40 };
             fadeTimer.Tick += (s, e) => FadeTick();
+
+            // 50ms 检查一次光标是否还在可见区域里。人眼对 20Hz 的状态切换无感，
+            // 而这个频率下每次 tick 只是一次 PointToClient + Region.IsVisible，开销可以忽略。
+            hoverTimer = new Timer { Interval = 50 };
+            hoverTimer.Tick += (s, e) => SyncHover();
+            hoverTimer.Start();
         }
 
         private static Label NewLabel(ContentAlignment align)
@@ -439,7 +449,8 @@ namespace ClassBell
         {
             double next = Math.Max(MinOpacity, Math.Min(1.0, opacity));
             baseOpacity = next;
-            if (!fading && Visible) Opacity = next;
+            // 悬停中不改：否则用户拖透明度滑杆时浮窗会从 100% 掉下来
+            if (!fading && Visible && !hovering) Opacity = next;
         }
 
         internal double BaseOpacity
@@ -679,8 +690,11 @@ namespace ClassBell
             suppressHide = false;
             fading = false;
             fadeTimer.Stop();
+            // 重新显示时先按"未悬停"复位，接下来由 SyncHover 决定要不要拉到 100%
+            hovering = false;
             Opacity = baseOpacity;
             if (!Visible) Show();
+            SyncHover();
         }
 
         /* ------------------------------------------------------------ 内容 */
@@ -982,20 +996,62 @@ namespace ClassBell
 
         /* ------------------------------------------------------------ 交互 */
 
-        protected override void OnMouseEnter(EventArgs e2)
+        /// <summary>
+        /// 判断光标是否真的落在浮窗的**可见区域**里。
+        ///
+        /// 为什么用 Region.IsVisible 而不是 ClientRectangle.Contains：
+        /// 浮窗的圆角是用 Region 裁出来的（ApplyRoundRegion），四个角虽然落在
+        /// 客户区矩形内，但被裁掉了、根本看不见。用矩形判断会让"光标在圆角外面一点点"
+        /// 也算作悬停，透明度就跟着错。Region 为空时退回矩形判断。
+        /// </summary>
+        /// <summary>
+        /// 客户区坐标的来源。生产环境是真实光标；探针可以替换成固定坐标，
+        /// 这样验证区域判定时不受 DPI 换算和真实鼠标位置影响。
+        /// </summary>
+        internal Func<Point> ClientPointSource;
+
+        internal bool IsCursorInsideVisibleArea()
         {
-            base.OnMouseEnter(e2);
-            if (!Visible) return;
-            fadeTimer.Stop();
-            fading = false;
-            Opacity = 1.0;
+            if (!Visible || IsDisposed) return false;
+            Point client = ClientPointSource != null ? ClientPointSource() : PointToClient(Cursor.Position);
+            if (!ClientRectangle.Contains(client)) return false;
+            var region = Region;
+            return region == null || region.IsVisible(client);
         }
 
-        protected override void OnMouseLeave(EventArgs e)
+        /// <summary>
+        /// 悬停状态同步。每 50ms 调一次，**只在状态翻转时**改透明度。
+        ///
+        /// 为什么不再用窗体的 OnMouseEnter/OnMouseLeave：浮窗可见区域几乎全被 Label 盖住，
+        /// 光标直接落在 Label 上时窗体根本收不到 MouseEnter；更糟的是光标在两个 Label 之间
+        /// 移动时，WinForms 会先给窗体发 MouseLeave 再发 MouseEnter ——
+        /// 于是透明度在 100% 和用户设置值之间来回跳，看起来就是在闪。
+        /// 按光标位置判定跟"压在哪个子控件上"完全无关，以后再加控件也不会漏。
+        /// </summary>
+        internal void SyncHover()
         {
-            base.OnMouseLeave(e);
-            if (!Visible || dragging) return;
-            Opacity = baseOpacity;
+            if (IsDisposed || !Visible)
+            {
+                hovering = false;
+                return;
+            }
+
+            bool inside = IsCursorInsideVisibleArea();
+            if (inside == hovering) return;   // 状态没变就什么都不做 —— 这是"不闪"的关键
+            hovering = inside;
+
+            if (inside)
+            {
+                // 悬停时打断淡出，并直接拉到完全不透明
+                fadeTimer.Stop();
+                fading = false;
+                Opacity = 1.0;
+            }
+            else if (!dragging)
+            {
+                // 拖动中不恢复：松手后再按悬停规则走，避免拖动过程闪
+                Opacity = baseOpacity;
+            }
         }
 
         /// <summary>
@@ -1007,6 +1063,7 @@ namespace ClassBell
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
+                hovering = false;
                 Hide();
                 return;
             }
@@ -1020,6 +1077,7 @@ namespace ClassBell
                 if (tickTimer != null) { tickTimer.Stop(); tickTimer.Dispose(); }
                 if (fullscreenTimer != null) { fullscreenTimer.Stop(); fullscreenTimer.Dispose(); }
                 if (fadeTimer != null) { fadeTimer.Stop(); fadeTimer.Dispose(); }
+                if (hoverTimer != null) { hoverTimer.Stop(); hoverTimer.Dispose(); }
                 for (int i = 0; i < titleLabels.Length; i += 1)
                 {
                     if (titleLabels[i] != null && titleLabels[i].Font != null) titleLabels[i].Font.Dispose();
