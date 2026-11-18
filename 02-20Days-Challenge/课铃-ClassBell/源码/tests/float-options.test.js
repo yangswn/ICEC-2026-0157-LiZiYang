@@ -54,7 +54,7 @@ test('float opacity is continuous inside 0.30..1.00', () => {
 test('sorting is priority desc then due asc, in one comparator', () => {
   const at = mainCs.indexOf('private static List<FloatWindow.TaskInfo> ComputeFloatTasks');
   assert.ok(at > 0, '要有 ComputeFloatTasks');
-  const block = mainCs.slice(at, at + 2200);
+  const block = mainCs.slice(at, at + 5200);
 
   assert.ok(block.includes('PriorityRank(b.Key.Priority).CompareTo(PriorityRank(a.Key.Priority))'),
     '第一关键字：优先级降序');

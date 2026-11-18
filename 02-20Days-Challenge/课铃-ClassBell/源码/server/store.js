@@ -410,6 +410,16 @@ function normalizeTask(input, existing = null) {
     estimateDay: cleanText(input.estimateDay ?? base.estimateDay, 10) || null
   };
 
+  // seriesId 的根节点原则：重复任务的第一期也要写上自己的 id。
+  //
+  // 为什么：nextOccurrence() 生成下一期时用的是 `task.seriesId || task.id`，
+  // 于是只有"派生出来的期"记住了系列键，而系列**根节点**的 seriesId 一直是空串。
+  // 结果没法用一个键把整个系列捞出来 —— 分组（浮窗合并）、撤销（恢复上一期）
+  // 都得靠"猜父任务"，很容易漏。让根节点自带 seriesId 之后，
+  // 任何一期都能用 `seriesId || id` 得到同一个系列键。
+  // 老数据不迁移：它们的 seriesId 还是空串，读取时统一按 `seriesId || id` 兜底。
+  if (task.recurrence !== 'none' && !task.seriesId) task.seriesId = task.id;
+
   if (task.dueAt !== base.dueAt) {
     task.remindersSent = [];
   } else if (input.reminderOffsets) {
@@ -836,12 +846,77 @@ class Store {
     return { task: done, next };
   }
 
+  /**
+   * 把任务从「已完成」改回「待完成」。
+   *
+   * 语义是「撤销刚才那次完成」，所以不只是改状态：完成时系统自动生成的那一期
+   * （nextOccurrence 的产物）也要一并收回，否则同一个系列会同时躺着两条 pending。
+   *
+   * 只删「机器生成且还没人碰过」的那一条，判断条件见 findUntouchedNext()。
+   *
+   * @param {string} id 要恢复的任务 id
+   * @returns {{task: object, removedNextId: string|null}}
+   */
   restoreTask(id) {
+    const before = this.state.tasks.find((t) => t.id === id);
     // 重置字段全部由 updateTask 的 pending 分支统一处理（PENDING_STATE_RESET），
     // 这里只负责把状态说出来，避免两处各写一份、迟早再漏。
-    return this.updateTask(id, { status: 'pending' });
+    const task = this.updateTask(id, { status: 'pending' });
+
+    let removedNextId = null;
+    if (before) {
+      const successor = this.findUntouchedNext(before);
+      if (successor) {
+        removedNextId = successor.id;
+        this.deleteTask(successor.id);
+      }
+    }
+    return { task, removedNextId };
   }
 
+  /**
+   * 找出「完成 T 时自动生成的那一期」，前提是它还没被动过。
+   *
+   * 三个条件逐条说明为什么必须都满足：
+   *  1. status === 'pending' —— 如果下一期已经被完成/标记错过，它已经是一段独立的事实，
+   *     恢复上一期不该把它抹掉，否则会连用户后来的操作一起撤销；
+   *  2. 没有 startAt —— 用户已经开始做了，说明这一期进入了真实使用，不能当垃圾回收；
+   *  3. 没有 actualMinutes —— 有实际耗时说明它至少被完成过一次又恢复过，同样不能删。
+   *
+   * 另外用「同系列 + 截止时间更晚 + 取最早」锁定"直接后继"：
+   * 系列里可能已经有好几期（用户补做完好几周），只能删紧跟着 T 的那一期。
+   *
+   * @returns {object|null}
+   */
+  findUntouchedNext(task) {
+    const seriesKey = task.seriesId || task.id;
+    if (!seriesKey) return null;
+    const baseDue = Date.parse(task.dueAt);
+    if (!Number.isFinite(baseDue)) return null;
+
+    // 先找「系列里紧接 T 之后的那一条」——注意是**所有**状态都参与比较。
+    //
+    // 为什么不直接找"最早的 pending"：如果子期已经完成了、前面又生成了孙期，
+    // 那么紧接 T 的是子期（已完成），孙期只是它的后代。跨过子期去删孙期，
+    // 等于把用户后来的操作一起撤销了。所以中间只要还夹着别的期，就不删。
+    let next = null;
+    let nextDue = Infinity;
+    for (const candidate of this.state.tasks) {
+      if (!candidate || candidate.id === task.id) continue;
+      const key = candidate.seriesId || candidate.id;
+      if (key !== seriesKey) continue;
+      const due = Date.parse(candidate.dueAt);
+      if (!Number.isFinite(due) || due <= baseDue) continue;
+      if (due < nextDue) { nextDue = due; next = candidate; }
+    }
+    if (!next) return null;
+
+    // 再确认这条"紧接的下一期"确实没被人碰过（三个条件缺一不可，理由见方法注释）。
+    if (next.status !== 'pending') return null;
+    if (next.startAt) return null;
+    if (next.actualMinutes !== null && next.actualMinutes !== undefined) return null;
+    return next;
+  }
   updateSettings(patch) {
     const allowed = [
       'autoLaunch', 'closeToTray', 'autoSync', 'autoSyncIntervalMin',

@@ -57,7 +57,7 @@ test('restoreTask clears started-at, actual minutes and estimates', () => {
   assert.ok(done.startAt, '前置：完成后应保留开工时间');
   assert.ok(done.actualMinutes > 0, '前置：完成后应记下实际耗时');
 
-  const back = store.restoreTask(id);
+  const back = store.restoreTask(id).task;
   assert.equal(back.status, 'pending');
   assert.equal(back.startAt, null, '改回待完成不能还带着开工时间（否则界面显示进行中）');
   assert.equal(back.actualMinutes, null, '改回待完成不能还带着实际耗时');
@@ -95,7 +95,7 @@ test('every path that sets status back to pending clears the same fields', () =>
   /* 路径 A：restoreTask */
   {
     const { id } = doneTask(store);
-    const back = store.restoreTask(id);
+    const back = store.restoreTask(id).task;
     for (const [key, value] of Object.entries(PENDING_STATE_RESET)) {
       assert.deepEqual(back[key], value, `restoreTask 之后 ${key} 应重置`);
     }

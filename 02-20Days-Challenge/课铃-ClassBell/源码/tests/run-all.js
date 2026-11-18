@@ -26,3 +26,4 @@ require('./toast-layout.test.js');
 require('./scale-split.test.js');
 require('./float-options.test.js');
 require('./opacity-preview.test.js');
+require('./series-merge.test.js');

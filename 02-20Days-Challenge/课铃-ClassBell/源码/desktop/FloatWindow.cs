@@ -112,6 +112,8 @@ namespace ClassBell
         private readonly Label[] titleLabels = new Label[3];
         private readonly Label[] countdownLabels = new Label[3];
         private readonly Label tagLabel;
+        // 主条目右上角那行小字：「下次 明天 12:40」。同系列还有下一期时才显示。
+        private readonly Label nextLabel;
         private readonly Timer tickTimer;
         private readonly Timer fullscreenTimer;
         private readonly Timer fadeTimer;
@@ -141,11 +143,16 @@ namespace ClassBell
         /// <summary>当前要显示的任务（宿主从 /api/state 里挑好、排好序送来的）。</summary>
         internal sealed class TaskInfo
         {
+            public string Id = "";
             public string Title = "";
             public string Course = "";
             public DateTime? DueAt;
             public string Category = "";
             public string Priority = "normal";
+            // 系列键：同一系列的多期只在浮窗占一格（宿主已经分好组，这里只用于显示"下次"）
+            public string SeriesId = "";
+            // 同一系列的下一期时间；没有下一期就是 null，界面不显示那行小字
+            public DateTime? NextDueAt;
         }
 
         internal FloatWindow(MainForm owner)
@@ -165,11 +172,18 @@ namespace ClassBell
             {
                 titleLabels[i] = NewLabel(ContentAlignment.MiddleLeft);
                 countdownLabels[i] = NewLabel(ContentAlignment.MiddleRight);
+                // 起个名字：探针要单独确认"倒计时没被截断"，UIA 排查时也认得出是哪块
+                titleLabels[i].Name = "title" + i;
+                countdownLabels[i].Name = "countdown" + i;
                 Controls.Add(titleLabels[i]);
                 Controls.Add(countdownLabels[i]);
             }
 
             tagLabel = NewLabel(ContentAlignment.MiddleRight);
+            nextLabel = NewLabel(ContentAlignment.MiddleRight);
+            tagLabel.Name = "tag";
+            nextLabel.Name = "next";
+            Controls.Add(nextLabel);
             Controls.Add(tagLabel);
 
             DetectDpiScale();
@@ -304,6 +318,7 @@ namespace ClassBell
                 yield return countdownLabels[i];
             }
             yield return tagLabel;
+            yield return nextLabel;
         }
 
         private void OnDragStart(object sender, MouseEventArgs e)
@@ -484,8 +499,8 @@ namespace ClassBell
             }
 
             ApplyVisibility();
-            // 字号和宽度都变了：重新按单行截断一次，否则会沿用旧档位的截断结果
-            RefreshTexts();
+            // 字号和宽度都变了：重排一次（倒计时重新量宽、标题重新截断）
+            LayoutRows();
             ApplyRoundRegion();
             if (!dragging) Location = ClampToVisible(Location);
         }
@@ -685,57 +700,66 @@ namespace ClassBell
                 }
             }
 
-            // 条数由设置决定，任务不足时多余的行留空
-            int count = Math.Max(1, Math.Min(titleLabels.Length, taskCount));
             ApplyVisibility();
 
             if (current.Count == 0)
             {
+                for (int i = 0; i < titleLabels.Length; i += 1)
+                {
+                    titleLabels[i].Text = "";
+                    countdownLabels[i].Text = "";
+                }
+                nextLabel.Text = "";
                 titleLabels[0].Text = "今天没有待办";
                 titleLabels[0].ForeColor = InkColor;
                 countdownLabels[0].Text = "休息一下，或者安排点别的";
                 countdownLabels[0].ForeColor = MutedColor;
                 tagLabel.Text = "";
-                for (int i = 1; i < titleLabels.Length; i += 1)
-                {
-                    titleLabels[i].Text = "";
-                    countdownLabels[i].Text = "";
-                }
                 ScheduledFadeOut();
                 return;
             }
 
             for (int i = 0; i < titleLabels.Length; i += 1)
             {
-                bool used = i < count && i < current.Count;
-                if (!used)
-                {
-                    titleLabels[i].Text = "";
-                    countdownLabels[i].Text = "";
-                    continue;
-                }
-                var task = current[i];
+                if (i >= current.Count) continue;
                 // 颜色 = 优先级：紧急红 / 重要金 / 普通墨色。
-                // 过期不用颜色区分（倒计时的"已超时"已经说清楚了），这样两个信号不打架。
-                titleLabels[i].ForeColor = PriorityColor(task.Priority);
+                // 过期不用颜色区分（倒计时的"超"已经说清楚了），这样两个信号不打架。
+                titleLabels[i].ForeColor = PriorityColor(current[i].Priority);
                 countdownLabels[i].ForeColor = MutedColor;
             }
-
-            RefreshTexts();
 
             var first = current[0];
             tagLabel.Text = PriorityTag(first);
             tagLabel.ForeColor = PriorityColor(first.Priority);
-            RenderCountdowns();
+            nextLabel.Text = FormatNextHint(first.NextDueAt);
+
+            LayoutRows();
         }
 
         /// <summary>
-        /// 把 current 里的任务铺到各行。标题按「单行」截断 ——
-        /// 多条时后面几行只有一行的高度，让它折行必然被裁掉。
+        /// 重排所有行：先给倒计时量出它真正需要的宽度，剩下的才给标题。
+        ///
+        /// 为什么要按文字反推宽度：倒计时是**必须完整可读**的信息
+        /// （「1 天 01 …」看不出是小时还是分钟），只能让标题去让位。
+        /// 标题放不下时截断加省略号，这是可以接受的损失。
         /// </summary>
-        private void RefreshTexts()
+        private void LayoutRows()
         {
             int count = Math.Max(1, Math.Min(titleLabels.Length, taskCount));
+            int pad = (int)Math.Round(16 * uiScale * dpiScale);
+            int gap = (int)Math.Round(6 * uiScale * dpiScale);
+            int rowWidth = Math.Max(1, ClientSize.Width - pad * 2);
+            int titleH = titleLabels[0].Height;
+
+            // 主条目：标题行右侧留给"下次 …"小字
+            int hintWidth = 0;
+            if (!string.IsNullOrEmpty(nextLabel.Text))
+            {
+                hintWidth = MeasureWidth(nextLabel.Text, nextLabel.Font) + gap;
+                nextLabel.Bounds = new Rectangle(ClientSize.Width - pad - hintWidth + gap, titleLabels[0].Top, hintWidth - gap, Math.Max(1, titleH));
+            }
+            nextLabel.Visible = hintWidth > 0;
+
             for (int i = 0; i < titleLabels.Length; i += 1)
             {
                 bool used = i < count && i < current.Count;
@@ -745,10 +769,94 @@ namespace ClassBell
                     countdownLabels[i].Text = "";
                     continue;
                 }
-                titleLabels[i].Text = FitOneLine(current[i].Title, titleLabels[i].Font, titleLabels[i].Bounds.Width);
+
+                var task = current[i];
+                string dueText = FormatCountdown(task.DueAt);
+                countdownLabels[i].Text = dueText;
+
+                int dueWidth = MeasureWidth(dueText, countdownLabels[i].Font);
+
+                if (i == 0)
+                {
+                    // 第一行：标题（右侧扣掉小字）；第二行：倒计时 + 优先级标签
+                    int titleWidth = Math.Max(40, rowWidth - (hintWidth > 0 ? hintWidth : 0));
+                    titleLabels[0].Bounds = new Rectangle(pad, titleLabels[0].Top, titleWidth, Math.Max(1, titleH));
+                    int tagWidth = tagLabel.Width;
+                    int dueRoom = Math.Max(40, rowWidth - tagWidth - gap);
+                    dueWidth = Math.Min(dueWidth, dueRoom);
+                    countdownLabels[0].Bounds = new Rectangle(pad, countdownLabels[0].Top, dueWidth, countdownLabels[0].Height);
+                }
+                else
+                {
+                    // 后面几行：单行「标题 …… 倒计时」，倒计时先占位
+                    int rowTop = titleLabels[i].Top;
+                    int lineH = Math.Max(1, countdownLabels[i].Height);
+                    countdownLabels[i].Bounds = new Rectangle(ClientSize.Width - pad - dueWidth, rowTop, dueWidth, lineH);
+                    int titleWidth = Math.Max(40, rowWidth - dueWidth - gap);
+                    titleLabels[i].Bounds = new Rectangle(pad, rowTop, titleWidth, lineH);
+                }
+
+                titleLabels[i].Text = FitOneLine(task.Title, titleLabels[i].Font, titleLabels[i].Bounds.Width);
             }
         }
 
+        /// <summary>量一段单行文字的真实宽度（含少量余量，避免刚好差一像素又显示省略号）。</summary>
+        private static int MeasureWidth(string text, Font font)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            return TextRenderer.MeasureText(text, font, new Size(int.MaxValue, int.MaxValue), flags).Width + 4;
+        }
+
+        /// <summary>
+        /// 倒计时文案。压紧成「1 天 1 时」「1 时 52 分」「22 分」这种短格式，
+        /// 这样即使后面几行只有半行宽也放得下 —— 前提是这几个字必须完整出现。
+        /// 超时用「超」开头，比原来的「已超时 」短一半。
+        /// </summary>
+        private static string FormatCountdown(DateTime? dueAt)
+        {
+            if (!dueAt.HasValue) return "无截止";
+            var diff = dueAt.Value - DateTime.Now;
+            bool late = diff.TotalSeconds < 0;
+            var abs = diff.Duration();
+            string core;
+            if (abs.TotalDays >= 1)
+            {
+                int days = (int)abs.TotalDays;
+                core = abs.Hours > 0 ? string.Format("{0} 天 {1} 时", days, abs.Hours) : string.Format("{0} 天", days);
+            }
+            else if (abs.TotalHours >= 1)
+            {
+                int hours = (int)abs.TotalHours;
+                core = abs.Minutes > 0 ? string.Format("{0} 时 {1} 分", hours, abs.Minutes) : string.Format("{0} 时", hours);
+            }
+            else if (abs.TotalMinutes >= 1)
+            {
+                core = string.Format("{0} 分", (int)abs.TotalMinutes);
+            }
+            else
+            {
+                core = string.Format("{0} 秒", Math.Max(0, abs.Seconds));
+            }
+            return late ? "超 " + core : core;
+        }
+
+        /// <summary>
+        /// 「下次 明天 12:40」这行小字。没有下一期就返回空串（界面不占位）。
+        /// 日期用相对说法：今天 / 明天 / 周X / 月日，都是为了短。
+        /// </summary>
+        private static string FormatNextHint(DateTime? nextDueAt)
+        {
+            if (!nextDueAt.HasValue) return "";
+            var due = nextDueAt.Value;
+            var today = DateTime.Now.Date;
+            string day;
+            if (due.Date == today) day = "今天";
+            else if (due.Date == today.AddDays(1)) day = "明天";
+            else if (due.Date > today && due.Date <= today.AddDays(6)) day = "周" + "日一二三四五六"[(int)due.DayOfWeek];
+            else day = string.Format("{0}月{1}日", due.Month, due.Day);
+            return string.Format("下次 {0} {1:00}:{2:00}", day, due.Hour, due.Minute);
+        }
         /// <summary>
         /// 把文字压成单行：放不下就截断并补省略号。
         /// 不用 Label.AutoEllipsis —— 那个只管"超出宽度"，折行还是会发生；
@@ -803,32 +911,26 @@ namespace ClassBell
             return string.IsNullOrEmpty(task.Category) ? "" : task.Category;
         }
 
+        /// <summary>
+        /// 每秒刷新倒计时。文案变了才重排 —— 宽度是按文字量出来的，
+        /// 不重排的话「59 分」跳到「1 时 0 分」时宽度不够会被截。
+        /// </summary>
         private void RenderCountdowns()
         {
+            bool changed = false;
             for (int i = 0; i < current.Count && i < countdownLabels.Length; i += 1)
             {
                 var task = current[i];
-                if (!task.DueAt.HasValue)
+                string text = FormatCountdown(task.DueAt);
+                bool late = task.DueAt.HasValue && task.DueAt.Value < DateTime.Now;
+                if (countdownLabels[i].Text != text)
                 {
-                    countdownLabels[i].Text = "无截止时间";
-                    countdownLabels[i].ForeColor = MutedColor;
-                    continue;
+                    countdownLabels[i].Text = text;
+                    changed = true;
                 }
-                var diff = task.DueAt.Value - DateTime.Now;
-                bool late = diff.TotalSeconds < 0;
-                // 倒计时列很窄，必须压成单行，否则折行会被行高裁掉
-                string core = (late ? "已超时 " : "还有 ") + FormatSpan(diff.Duration());
-                countdownLabels[i].Text = FitOneLine(core, countdownLabels[i].Font, countdownLabels[i].Bounds.Width);
                 countdownLabels[i].ForeColor = late ? LateColor : MutedColor;
             }
-        }
-
-        private static string FormatSpan(TimeSpan abs)
-        {
-            if (abs.TotalDays >= 1) return string.Format("{0} 天 {1:00} 小时", (int)abs.TotalDays, abs.Hours);
-            if (abs.TotalHours >= 1) return string.Format("{0} 小时 {1:00} 分", (int)abs.TotalHours, abs.Minutes);
-            if (abs.TotalMinutes >= 1) return string.Format("{0} 分 {1:00} 秒", (int)abs.TotalMinutes, abs.Seconds);
-            return string.Format("{0} 秒", abs.Seconds);
+            if (changed) LayoutRows();
         }
 
 

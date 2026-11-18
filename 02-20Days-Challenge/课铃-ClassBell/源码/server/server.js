@@ -660,8 +660,11 @@ async function handleApi(req, res) {
       return json(res, 200, result);
     }
     if (method === 'POST' && taskMatch[2] === 'restore') {
-      const task = store.restoreTask(id);
-      log('task_restored');
+      const result = store.restoreTask(id);
+      // 恢复 = 撤销上一次完成，会把那次自动生成的下一期一并收回；
+      // 记一下被撤销的 id，排查"任务怎么少了一条"时有据可查。
+      const task = result.task;
+      log('task_restored', { meta: { removedNext: result.removedNextId || null } });
       broadcastState();
       return json(res, 200, task);
     }

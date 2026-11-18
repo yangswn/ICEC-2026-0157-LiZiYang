@@ -752,8 +752,13 @@ namespace ClassBell
                 var tasks = stateNode["tasks"] as IList;
                 if (tasks == null) return result;
 
-                var now = DateTime.Now;
-                var picked = new List<KeyValuePair<FloatWindow.TaskInfo, DateTime>>();
+                // 第一步：按系列分组。
+                //
+                // 分组键用 seriesId（没有就退回任务自己的 id），**不用标题**：
+                // 同一门课有两份都叫「作业」的不同任务是很常见的，用标题合并会把它们吃掉；
+                // 而 seriesId 是创建时写死的身份，重复任务的每一期共享同一个值。
+                // 老数据的根节点 seriesId 可能是空串，`|| id` 让它自成一组、不影响别的组。
+                var groups = new Dictionary<string, SeriesGroup>();
 
                 foreach (var entry in tasks)
                 {
@@ -767,19 +772,44 @@ namespace ClassBell
                         System.Globalization.DateTimeStyles.RoundtripKind, out due)) continue;
                     due = due.ToLocalTime();
 
+                    string id = HostApi.Str(task, "id");
+                    string seriesId = HostApi.Str(task, "seriesId");
+                    string key = string.IsNullOrEmpty(seriesId) ? id : seriesId;
+                    if (string.IsNullOrEmpty(key)) key = id;
+
+                    SeriesGroup group;
+                    if (!groups.TryGetValue(key, out group))
+                    {
+                        group = new SeriesGroup();
+                        groups[key] = group;
+                    }
+
                     var info = new FloatWindow.TaskInfo
                     {
+                        Id = id,
                         Title = HostApi.Str(task, "title"),
                         Course = HostApi.Str(task, "course"),
                         DueAt = due,
                         Category = CategoryLabel(HostApi.Str(task, "category")),
-                        Priority = HostApi.Str(task, "priority")
+                        Priority = HostApi.Str(task, "priority"),
+                        SeriesId = key
                     };
-                    picked.Add(new KeyValuePair<FloatWindow.TaskInfo, DateTime>(info, due));
+
+                    group.Add(info);
                 }
 
-                // 一次比较里比两个关键字。不能分两次排：List.Sort 不是稳定排序，
-                // 第二次排完同优先级内部的时间顺序就没了，而"全普通时按时间"是硬要求。
+                // 第二步：每个系列只留最早那一期作为主条目，并把紧随其后的时间记为「下次」。
+                var picked = new List<KeyValuePair<FloatWindow.TaskInfo, DateTime>>();
+                foreach (var group in groups.Values)
+                {
+                    var head = group.TakeEarliest();
+                    if (head == null) continue;
+                    head.NextDueAt = group.SecondDue();
+                    picked.Add(new KeyValuePair<FloatWindow.TaskInfo, DateTime>(head, head.DueAt ?? DateTime.MaxValue));
+                }
+
+                // 第三步：排序（优先级降序 → 截止时间升序），再截断到 N 条。
+                // 一次比较里比两个关键字：List.Sort 不是稳定排序，分两次排会打乱同优先级的时间顺序。
                 picked.Sort((a, b) =>
                 {
                     int byPriority = PriorityRank(b.Key.Priority).CompareTo(PriorityRank(a.Key.Priority));
@@ -796,6 +826,43 @@ namespace ClassBell
             return result;
         }
 
+        /// <summary>同一系列的多期任务。只保留最早一期作为浮窗条目，后面那期用来显示「下次」。</summary>
+        private sealed class SeriesGroup
+        {
+            private readonly List<FloatWindow.TaskInfo> items = new List<FloatWindow.TaskInfo>();
+
+            internal void Add(FloatWindow.TaskInfo info)
+            {
+                items.Add(info);
+            }
+
+            /// <summary>取截止时间最早的那一期。</summary>
+            internal FloatWindow.TaskInfo TakeEarliest()
+            {
+                FloatWindow.TaskInfo best = null;
+                foreach (var item in items)
+                {
+                    if (best == null || (item.DueAt ?? DateTime.MaxValue) < (best.DueAt ?? DateTime.MaxValue)) best = item;
+                }
+                return best;
+            }
+
+            /// <summary>取「紧随最早一期之后」的那个时间；没有下一期返回 null。</summary>
+            internal DateTime? SecondDue()
+            {
+                var head = TakeEarliest();
+                if (head == null || !head.DueAt.HasValue) return null;
+                DateTime best = DateTime.MaxValue;
+                bool found = false;
+                foreach (var item in items)
+                {
+                    if (item == head || !item.DueAt.HasValue) continue;
+                    if (item.DueAt.Value <= head.DueAt.Value) continue;
+                    if (item.DueAt.Value < best) { best = item.DueAt.Value; found = true; }
+                }
+                return found ? best : (DateTime?)null;
+            }
+        }
         /// <summary>
         /// 优先级 → 排序权重。急 > 重要 > 普通，未知值按普通处理
         /// （老数据里可能没有 priority 字段，不能因此把它排到最前面或最后面）。

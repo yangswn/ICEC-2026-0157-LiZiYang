@@ -26,7 +26,7 @@ test('add, complete and restore a task', () => {
   const done = store.completeTask(task.id);
   assert.equal(done.task.status, 'done');
   assert.equal(store.stats().done, 1);
-  const restored = store.restoreTask(task.id);
+  const restored = store.restoreTask(task.id).task;
   assert.equal(restored.status, 'pending');
   assert.equal(store.stats().pending, 1);
 });
