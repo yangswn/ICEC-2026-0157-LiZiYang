@@ -44,6 +44,8 @@ namespace ClassBell
         [DllImport("user32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
@@ -69,6 +71,12 @@ namespace ClassBell
         }
 
         private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+        // SetWindowPos 的标志位：只改 z 序，不动位置尺寸、不激活窗口
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         /* -------------------------------------------------------- 外观参数 */
 
@@ -392,6 +400,20 @@ namespace ClassBell
             if (next == taskCount) return;
             taskCount = next;
             ApplyScale(uiScale);
+        }
+
+        /// <summary>
+        /// 把浮窗重新提到最前，但不激活、不抢焦点。
+        /// 设置页拖透明度时调用：主界面窗口可能盖住浮窗，用户看不到效果就没法判断。
+        /// </summary>
+        internal void KeepOnTopWithoutFocus()
+        {
+            if (IsDisposed || !Visible) return;
+            try
+            {
+                SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            catch { }
         }
 
         /// <summary>

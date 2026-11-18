@@ -167,6 +167,15 @@
       }
       return result;
     },
+    /**
+     * 透明度预览：只把当前值推给宿主，不写设置。
+     *
+     * 为什么单独一个方法而不是复用 updateSettings：
+     * 拖动滑杆时 input 每秒会触发几十次，走 updateSettings 就是几十次
+     * POST /api/settings + 写 data.json + broadcastState —— 又慢又脏。
+     * 这条通道直接发宿主消息，落盘留给松手时的 change。
+     */
+    previewFloatOpacity: (value) => host('applyFloatOptions', null, value),
     chooseLogDir: () => host('chooseFolder'),
     clearLogDir: () => request('POST', '/api/settings', { logMirrorDir: '' }),
 

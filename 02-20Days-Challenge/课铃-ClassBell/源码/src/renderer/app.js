@@ -1815,11 +1815,42 @@ function currentFloatOpacity() {
   return Math.max(0.3, Math.min(1, raw));
 }
 
+/*
+ * 透明度预览的节流。
+ *
+ * 为什么需要：input 在拖动时按帧触发，一次拖动能上百次；每次都发宿主消息
+ * 虽然不会写盘，但会堆一长串消息队列，松手时看到的是落后好几帧的值。
+ *
+ * 做法：requestAnimationFrame 合并 —— 同一帧内只取最后一次的值发出去。
+ * 帧率 60 时约 16ms 一次，人眼已经完全跟得上；浏览器在后台时 rAF 会自动降频，
+ * 也不会积压。再加一层「值没变就不发」的判重，避免重复消息。
+ */
+let opacityPreviewFrame = null;
+let opacityPreviewValue = null;
+let opacityPreviewSent = -1;
+
+function scheduleOpacityPreview(percent) {
+  opacityPreviewValue = percent;
+  if (opacityPreviewFrame !== null) return;   // 本帧已经排过一次，等它发
+  opacityPreviewFrame = requestAnimationFrame(() => {
+    opacityPreviewFrame = null;
+    const value = opacityPreviewValue;
+    opacityPreviewValue = null;
+    if (value == null || value === opacityPreviewSent) return;
+    opacityPreviewSent = value;
+    // 只推给宿主预览，不写设置：落盘由松手的 change 负责
+    if (api.previewFloatOpacity) api.previewFloatOpacity(value / 100).catch(() => {});
+  });
+}
+
 /**
  * 保存浮窗条数 / 透明度。
  * 两个值一起下发：宿主那边是同一个命令，分开发会多一次重排。
  */
 function saveFloatOptions(patch) {
+  // 落盘说明这次拖动结束了：把预览判重也同步成这个值，
+  // 否则下次拖回同一个数值会被判成"没变"而不发预览。
+  if (patch && patch.floatOpacity != null) opacityPreviewSent = Math.round(patch.floatOpacity * 100);
   if (App.state && App.state.settings) Object.assign(App.state.settings, patch);
   renderFloatOptions();
   api.updateSettings(patch).catch(() => { /* 离线时忽略 */ });
@@ -2328,11 +2359,12 @@ function bindEvents() {
     if (!btn) return;
     saveFloatOptions({ floatTaskCount: Number(btn.dataset.count) });
   });
-  // 滑杆用 input 事件：拖的过程中数字跟着走，松手（change）时再落一次盘
+  // 拖动：数字立刻更，同时把值推给宿主做预览（浮窗跟着变，不用松手）
   $('#float-opacity').addEventListener('input', (event) => {
     const percent = Number(event.target.value);
     const hint = $('#float-opacity-hint');
     if (hint) hint.textContent = `${percent}%`;
+    scheduleOpacityPreview(percent);
   });
   $('#float-opacity').addEventListener('change', (event) => {
     const percent = Number(event.target.value);

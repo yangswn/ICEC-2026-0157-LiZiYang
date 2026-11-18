@@ -968,15 +968,20 @@ namespace ClassBell
                             if (wantOpacity < FloatWindow.MinOpacity) wantOpacity = FloatWindow.MinOpacity;
                             if (wantOpacity > 1.0) wantOpacity = 1.0;
                         }
+                        // 抓预览和落盘走的是同一条命令，靠"条数有没有变"区分代价：
+                        // 拖透明度时条数没变，就不该重排（每帧重排会白烧 CPU，也可能闪一下）。
+                        bool countChanged = wantCount != floatTaskCountValue;
                         floatTaskCountValue = wantCount;
                         floatOpacityValue = wantOpacity;
                         if (floatWindow != null)
                         {
-                            floatWindow.SetTaskCount(wantCount);
+                            if (countChanged) floatWindow.SetTaskCount(wantCount);
                             floatWindow.SetBaseOpacity(wantOpacity);
+                            // 拖动时主界面可能盖住浮窗：把浮窗重新提到最前，但不激活、不抢焦点
+                            floatWindow.KeepOnTopWithoutFocus();
                         }
-                        // 条数变了要把高度重新算一遍，并把任务重新铺到新行数上
-                        SyncFloatWindow(latestStateNode);
+                        // 只有条数变了才需要重排高度并重新铺任务
+                        if (countChanged) SyncFloatWindow(latestStateNode);
                         Respond(id, true, null);
                         break;
                     case "applySurfaceScale":
