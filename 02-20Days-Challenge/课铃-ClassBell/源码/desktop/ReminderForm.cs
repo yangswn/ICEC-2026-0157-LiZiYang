@@ -20,6 +20,10 @@ namespace ClassBell
         private WebView2 webView;
         private System.Windows.Forms.Timer lifeTimer;
 
+        // 是否已经按 WebView2 自报的 devicePixelRatio 定过尺寸。
+        // 定完之前窗体保持不可见（Opacity=0），避免先按错的尺寸闪一下再跳。
+        private bool sizedByPage;
+
         // 设计尺寸，单位是 **CSS 像素** —— 与 reminder.css 的布局一一对应。
         //
         // 304 这个高度是实测出来的，够用：按 CDP 量到的真实 DOM，
@@ -51,7 +55,21 @@ namespace ClassBell
 
             // 尺寸与圆角一起算：Region 用的是同一组 Width/Height（都是物理像素），
             // 先设尺寸再建 Region，否则会拿旧尺寸裁圆角、底部四角对不上。
+            // 这里只给个初值，真实比例要等页面加载完由 SizeFromPageAsync 定。
             ApplyPixelSize();
+
+            // 定尺寸之前先别露出来：否则会先按 Win32 DPI 算的尺寸闪一下再跳到正确尺寸。
+            // 兜底：万一 NavigationCompleted 没触发（网络/初始化失败），2 秒后强制显示，
+            // 不能让提醒窗因为我们的优化而一直不可见。
+            Opacity = 0.0;
+            var reveal = new System.Windows.Forms.Timer { Interval = 2000 };
+            reveal.Tick += (s2, e2) =>
+            {
+                reveal.Stop();
+                reveal.Dispose();
+                try { if (Opacity < 1.0) Opacity = 1.0; } catch { }
+            };
+            reveal.Start();
 
             webView = new WebView2 { Dock = DockStyle.Fill };
             webView.DefaultBackgroundColor = Color.FromArgb(243, 240, 231);
@@ -110,7 +128,19 @@ namespace ClassBell
         /// </summary>
         private void ApplyPixelSize()
         {
-            float scale = CurrentDpiScale();
+            ApplyPixelSize(CurrentDpiScale());
+        }
+
+        /// <summary>
+        /// 按给定比例换算窗口物理尺寸。
+        ///
+        /// 比例来源要优先用「页面自报的 devicePixelRatio」：
+        /// Win32 的 DPI 和 WebView2 实际渲染用的比例在多显示器下可能不一致，
+        /// 一旦不一致，CSS 视口就会比设计尺寸大（下方大片空白）或小（按钮被裁）。
+        /// </summary>
+        private void ApplyPixelSize(float scale)
+        {
+            if (scale < 0.5f || scale > 4f) scale = 1f;
             int width = (int)Math.Round(DesignWidth * scale);
             int height = (int)Math.Round(DesignHeight * scale);
             if (Width == width && Height == height && Region != null) return;
@@ -135,8 +165,12 @@ namespace ClassBell
         protected override void OnDpiChanged(DpiChangedEventArgs e)
         {
             base.OnDpiChanged(e);
+            // 换屏后 WebView2 的 devicePixelRatio 也会变，所以重新问一次页面，
+            // 而不是直接用 Win32 报的新 DPI（那正是之前两边对不上的根源）。
+            sizedByPage = false;
             ApplyPixelSize();
             PositionWindow();
+            SizeFromPageAsync().ContinueWith(t => { }, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
 
         private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
@@ -178,6 +212,14 @@ namespace ClassBell
                 string json = HostApi.Json.Serialize(payload);
                 string url = "http://127.0.0.1:" + port + "/reminder.html?data=" + Uri.EscapeDataString(json);
                 webView.CoreWebView2.Navigate(url);
+
+                // 页面加载完再定尺寸：这时才能读到 WebView2 真正使用的 devicePixelRatio。
+                // 定完之前窗体是透明的，避免先按 Win32 DPI 算出的尺寸闪一下。
+                webView.CoreWebView2.NavigationCompleted += async (s2, e2) =>
+                {
+                    try { await SizeFromPageAsync(); } catch { }
+                    try { Opacity = 1.0; } catch { }
+                };
                 lifeTimer = new System.Windows.Forms.Timer { Interval = 10 * 60 * 1000 };
                 lifeTimer.Tick += (s, e) => { lifeTimer.Stop(); Close(); };
                 lifeTimer.Start();
@@ -187,6 +229,43 @@ namespace ClassBell
                 MessageBox.Show(this, "无法显示提醒：\n" + ex.Message, "课铃 ClassBell");
                 Close();
             }
+        }
+
+        /// <summary>
+        /// 用页面自报的 devicePixelRatio 定窗口尺寸。
+        ///
+        /// 这是唯一可靠的比例来源：CSS 视口 = 物理尺寸 / devicePixelRatio，
+        /// 只要两边用同一个数，视口就恒等于 440x304，不会出现"窗口特别大"或"按钮被裁"。
+        /// 连续取两次是为了避开页面刚加载时 dpr 还没稳定的瞬间。
+        /// </summary>
+        private async System.Threading.Tasks.Task SizeFromPageAsync()
+        {
+            if (webView == null || webView.CoreWebView2 == null) return;
+            if (sizedByPage) return;
+
+            float ratio = 0f;
+            for (int attempt = 0; attempt < 2 && ratio <= 0f; attempt += 1)
+            {
+                try
+                {
+                    string raw = await webView.CoreWebView2.ExecuteScriptAsync("window.devicePixelRatio");
+                    float parsed;
+                    if (raw != null
+                        && float.TryParse(raw.Trim('"'), System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out parsed)
+                        && parsed >= 0.5f && parsed <= 4f)
+                    {
+                        ratio = parsed;
+                    }
+                }
+                catch { }
+                if (ratio <= 0f) await System.Threading.Tasks.Task.Delay(120);
+            }
+
+            if (ratio <= 0f) ratio = CurrentDpiScale();   // 读不到就退回 Win32 DPI
+            sizedByPage = true;
+            ApplyPixelSize(ratio);
+            PositionWindow();
         }
 
         private void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
