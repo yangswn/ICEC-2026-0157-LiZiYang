@@ -39,6 +39,18 @@ namespace ClassBell
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
 
+        // 按显示器取 DPI。比 GetDpiForWindow 更早可用：不需要等窗口落到目标屏上。
+        [DllImport("shcore.dll")]
+        private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT { public int X; public int Y; }
+
+        private const uint MONITOR_DEFAULTTONEAREST = 2;
+        private const int MDT_EFFECTIVE_DPI = 0;
+
         public ReminderForm(int port, Dictionary<string, object> payload, MainForm owner, CoreWebView2Environment environment)
         {
             this.port = port;
@@ -53,23 +65,9 @@ namespace ClassBell
             AutoScaleMode = AutoScaleMode.None;
             try { Icon = new Icon(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", "icon.ico")); } catch { }
 
-            // 尺寸与圆角一起算：Region 用的是同一组 Width/Height（都是物理像素），
-            // 先设尺寸再建 Region，否则会拿旧尺寸裁圆角、底部四角对不上。
-            // 这里只给个初值，真实比例要等页面加载完由 SizeFromPageAsync 定。
-            ApplyPixelSize();
-
-            // 定尺寸之前先别露出来：否则会先按 Win32 DPI 算的尺寸闪一下再跳到正确尺寸。
-            // 兜底：万一 NavigationCompleted 没触发（网络/初始化失败），2 秒后强制显示，
-            // 不能让提醒窗因为我们的优化而一直不可见。
-            Opacity = 0.0;
-            var reveal = new System.Windows.Forms.Timer { Interval = 2000 };
-            reveal.Tick += (s2, e2) =>
-            {
-                reveal.Stop();
-                reveal.Dispose();
-                try { if (Opacity < 1.0) Opacity = 1.0; } catch { }
-            };
-            reveal.Start();
+            // 尺寸按「提醒将出现的那块屏」的 DPI 算，一次算准再显示，不做"先错后改"。
+            // Region 用同一组 Width/Height（都是物理像素），所以先定尺寸再建圆角。
+            ApplyPixelSize(ScaleForScreen(TargetScreen()));
 
             webView = new WebView2 { Dock = DockStyle.Fill };
             webView.DefaultBackgroundColor = Color.FromArgb(243, 240, 231);
@@ -90,6 +88,54 @@ namespace ClassBell
         /// 为什么必须按窗口所在屏取、而不是系统 DPI：多显示器里两块屏的缩放可能不同，
         /// 用错比例就会在副屏上被裁或撑出屏幕。句柄还没建好时退回系统 DPI。
         /// </summary>
+        /// <summary>
+        /// 取「某块屏」的缩放比例，用 GetDpiForMonitor 直接问系统，不需要窗口已经在上面。
+        ///
+        /// 为什么要在显示前就能算准：以前是先显示、再等页面报 devicePixelRatio 去纠正，
+        /// 中间会有一段时间窗体的尺寸是错的，只能靠"透明"遮住 —— 那正是"幽灵占位"。
+        /// 现在按目标屏的 DPI 先把尺寸算对，页面 dpr 只当校验用。
+        /// </summary>
+        private static float ScaleForScreen(Screen screen)
+        {
+            if (screen == null) return 1f;
+            try
+            {
+                var bounds = screen.Bounds;
+                var point = new POINT
+                {
+                    X = bounds.Left + bounds.Width / 2,
+                    Y = bounds.Top + bounds.Height / 2
+                };
+                IntPtr monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
+                if (monitor != IntPtr.Zero)
+                {
+                    uint dpiX, dpiY;
+                    if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out dpiX, out dpiY) == 0
+                        && dpiX >= 72 && dpiX <= 384)
+                    {
+                        return dpiX / 96f;
+                    }
+                }
+            }
+            catch { }
+            return SystemDpiScale();
+        }
+
+        /// <summary>系统级 DPI 比例，只作为最后兜底（拿不到具体显示器时用）。</summary>
+        private static float SystemDpiScale()
+        {
+            try
+            {
+                using (var graphics = Graphics.FromHwnd(IntPtr.Zero))
+                {
+                    float scale = graphics.DpiX / 96f;
+                    if (scale >= 0.75f && scale <= 4f) return scale;
+                }
+            }
+            catch { }
+            return 1f;
+        }
+
         private float CurrentDpiScale()
         {
             try
@@ -165,11 +211,13 @@ namespace ClassBell
         protected override void OnDpiChanged(DpiChangedEventArgs e)
         {
             base.OnDpiChanged(e);
-            // 换屏后 WebView2 的 devicePixelRatio 也会变，所以重新问一次页面，
-            // 而不是直接用 Win32 报的新 DPI（那正是之前两边对不上的根源）。
-            sizedByPage = false;
-            ApplyPixelSize();
+            // 同步先按新屏的 DPI 改尺寸：这一步是立即生效的，拖动跨屏时不会有"中间一帧还按旧尺寸"。
+            float newScale = e.DeviceDpiNew > 0 ? e.DeviceDpiNew / 96f : CurrentDpiScale();
+            ApplyPixelSize(newScale);
             PositionWindow();
+
+            // 再用页面自报的 dpr 校验一次：只有真的不一致才纠正（极少发生）。
+            sizedByPage = false;
             SizeFromPageAsync().ContinueWith(t => { }, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
 
@@ -185,9 +233,16 @@ namespace ClassBell
             return path;
         }
 
+        /// <summary>提醒窗口该出现在哪块屏：光标所在的那块（和以前一致）。</summary>
+        private static Screen TargetScreen()
+        {
+            try { return Screen.FromPoint(Cursor.Position); }
+            catch { return Screen.PrimaryScreen; }
+        }
+
         private void PositionWindow()
         {
-            var screen = Screen.FromPoint(Cursor.Position);
+            var screen = TargetScreen();
             var area = screen.WorkingArea;
             Location = new Point(area.Right - Width - 24, area.Bottom - Height - 24);
         }
@@ -264,6 +319,10 @@ namespace ClassBell
 
             if (ratio <= 0f) ratio = CurrentDpiScale();   // 读不到就退回 Win32 DPI
             sizedByPage = true;
+
+            // 只在真的不一致时才改尺寸：正常情况下显示前已经算对，这里什么都不会发生。
+            int width = (int)Math.Round(DesignWidth * ratio);
+            if (Width == width) return;
             ApplyPixelSize(ratio);
             PositionWindow();
         }

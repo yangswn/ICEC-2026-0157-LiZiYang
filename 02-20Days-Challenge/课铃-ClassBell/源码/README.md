@@ -25,7 +25,7 @@
 
 ## 安装
 
-安装包：`dist/ClassBell-Setup-1.11.5.exe`（约 34 MB，64 位 Windows 10/11）。
+安装包：`dist/ClassBell-Setup-1.11.6.exe`（约 34 MB，64 位 Windows 10/11）。
 
 1. 双击安装包，阅读并勾选许可协议，选择安装位置。
 2. 安装器会释放本地服务、WebView2 宿主与图标，创建开始菜单/桌面快捷方式。
@@ -169,7 +169,7 @@ powershell -File scripts\build-setup.ps1
 产物：
 
 - `dist\ClassBell\`：免安装目录（可直接运行 `ClassBell.exe`）
-- `dist\ClassBell-Setup-1.11.5.exe`：安装包
+- `dist\ClassBell-Setup-1.11.6.exe`：安装包
 
 WebView2 SDK 已放在 `desktop/lib/`；Node 运行时从本机 `node.exe` 复制到 `runtime/node.exe`。
 
