@@ -1,7 +1,7 @@
 {
   "name": "classbell",
   "productName": "ClassBell",
-  "version": "1.11.3",
+  "version": "1.11.4",
   "description": "课铃 ClassBell - 课程作业自动识别与到期提醒工具",
   "main": "server/server.js",
   "author": {

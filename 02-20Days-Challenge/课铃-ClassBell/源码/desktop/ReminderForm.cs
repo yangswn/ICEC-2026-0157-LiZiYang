@@ -20,6 +20,18 @@ namespace ClassBell
         private WebView2 webView;
         private System.Windows.Forms.Timer lifeTimer;
 
+        // 设计尺寸，单位是 **CSS 像素** —— 与 reminder.css 的布局一一对应。
+        //
+        // 304 这个高度是实测出来的，够用：按 CDP 量到的真实 DOM，
+        //   1 行标题：头部 84 + 正文(17+12+6+26+9+14+15+34+12 = 145) + 页脚 28 + 卡片上下留白 14 + 边框 2 = 272；
+        //   2 行标题（-webkit-line-clamp: 2 的上限）：标题 26 → 52，需要 298。
+        // 所以 304 已经能容纳 2 行标题（余 6px），不需要靠加高窗口来"塞内容"。
+        //
+        // 真正的问题不是这个数值太小，而是它被当成物理像素用了：
+        // 125% 缩放下 440x304 的物理窗口只对应 352x243 的 CSS 视口，比 272 还小，按钮才会被裁。
+        private const int DesignWidth = 440;
+        private const int DesignHeight = 304;
+
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
 
@@ -33,14 +45,13 @@ namespace ClassBell
             ShowInTaskbar = true;
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
-            Width = 440;
-            Height = 304;
             BackColor = Color.FromArgb(243, 240, 231);
             AutoScaleMode = AutoScaleMode.None;
             try { Icon = new Icon(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", "icon.ico")); } catch { }
 
-            using (var path = RoundedRect(new Rectangle(0, 0, Width, Height), 18))
-                Region = new Region(path);
+            // 尺寸与圆角一起算：Region 用的是同一组 Width/Height（都是物理像素），
+            // 先设尺寸再建 Region，否则会拿旧尺寸裁圆角、底部四角对不上。
+            ApplyPixelSize();
 
             webView = new WebView2 { Dock = DockStyle.Fill };
             webView.DefaultBackgroundColor = Color.FromArgb(243, 240, 231);
@@ -53,6 +64,79 @@ namespace ClassBell
                 await InitializeAsync();
             };
             FormClosed += (s, e) => { if (lifeTimer != null) { lifeTimer.Stop(); lifeTimer.Dispose(); } };
+        }
+
+        /// <summary>
+        /// 取这个窗口所在显示器上的 DPI 比例（150% → 1.5）。
+        ///
+        /// 为什么必须按窗口所在屏取、而不是系统 DPI：多显示器里两块屏的缩放可能不同，
+        /// 用错比例就会在副屏上被裁或撑出屏幕。句柄还没建好时退回系统 DPI。
+        /// </summary>
+        private float CurrentDpiScale()
+        {
+            try
+            {
+                if (IsHandleCreated)
+                {
+                    uint dpi = GetDpiForWindow(Handle);
+                    if (dpi >= 72 && dpi <= 384) return dpi / 96f;   // 75% ~ 400%
+                }
+                using (var graphics = Graphics.FromHwnd(IntPtr.Zero))
+                {
+                    float scale = graphics.DpiX / 96f;
+                    if (scale >= 0.75f && scale <= 4f) return scale;
+                }
+            }
+            catch { }
+            return 1f;
+        }
+
+        /// <summary>
+        /// 句柄建好之后立刻再算一次：构造时还拿不到这块屏的 DPI，
+        /// 只能用系统 DPI 兜底；这里补上窗口真正归属的那块屏。
+        /// </summary>
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyPixelSize();
+        }
+
+        /// <summary>
+        /// 按 DPI 把「设计尺寸（CSS 像素）」换算成窗口的物理像素尺寸，并重建圆角区域。
+        ///
+        /// 为什么必须换算：WinForms 的 Width/Height 是物理像素，而 WebView2 里的 CSS 像素
+        /// 会按系统缩放放大 —— 同一份 reminder.css 在 150% 屏上要占 1.5 倍物理宽高。
+        /// 尺寸不跟着放大，CSS 视口就只剩 2/3（实测 294x203），内容被 overflow:hidden 裁掉。
+        /// </summary>
+        private void ApplyPixelSize()
+        {
+            float scale = CurrentDpiScale();
+            int width = (int)Math.Round(DesignWidth * scale);
+            int height = (int)Math.Round(DesignHeight * scale);
+            if (Width == width && Height == height && Region != null) return;
+
+            MinimumSize = new Size(width, height);
+            MaximumSize = new Size(width, height);
+            Size = new Size(width, height);
+
+            var old = Region;
+            // 圆角半径也按 DPI 放大：18 是 100% 下的视觉半径
+            using (var path = RoundedRect(new Rectangle(0, 0, width, height), (int)Math.Round(18 * scale)))
+            {
+                Region = new Region(path);
+            }
+            if (old != null) old.Dispose();
+        }
+
+        /// <summary>
+        /// 窗口被拖到另一块缩放比例不同的显示器时，重算尺寸与圆角。
+        /// 不处理的话，换屏之后 CSS 视口又会变小、按钮再次被裁。
+        /// </summary>
+        protected override void OnDpiChanged(DpiChangedEventArgs e)
+        {
+            base.OnDpiChanged(e);
+            ApplyPixelSize();
+            PositionWindow();
         }
 
         private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
