@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | 主屏 @150% | 1.5 | 440×304 | 完整，在正文内、页脚之上 | 7.7px |
 | 副屏 @100% | 1.0 | 440×304 | 完整，在正文内、页脚之上 | 8.0px |
-| 模拟 @200% | 2.0 | 440×304 | `actionsHiddenUnderFooter = false`，`overflowPastBody = -43` |
+| 模拟 @200% | 2.0 | 440×304 | `actionsHiddenUnderFooter = false`，`overflowPastBody = -43` | — |
 
 ## 1.11.5 — 2026-11-19
 
